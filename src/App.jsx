@@ -17,6 +17,29 @@ function getToday() {
   return new Date().toISOString().slice(0, 10);
 }
 
+function getMonday(dateString = getToday()) {
+  const date = new Date(dateString + "T00:00:00");
+  const day = date.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  date.setDate(date.getDate() + diff);
+  return date.toISOString().slice(0, 10);
+}
+
+function addDays(dateString, days) {
+  const date = new Date(dateString + "T00:00:00");
+  date.setDate(date.getDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function formatDateLabel(dateString) {
+  const date = new Date(dateString + "T00:00:00");
+  return date.toLocaleDateString("es-AR", {
+    weekday: "long",
+    day: "2-digit",
+    month: "2-digit",
+  });
+}
+
 function getHorario(item) {
   if (item.horario_tipo === "Flexible") return "Flexible";
   return item.horario_detalle || item.horario_tipo || "";
@@ -42,8 +65,8 @@ function App() {
   const [lugares, setLugares] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  // Vacío = mostrar todas las fechas
   const [fechaFiltro, setFechaFiltro] = useState("");
+  const [semanaInicio, setSemanaInicio] = useState(getMonday());
 
   const [form, setForm] = useState({
     fecha: getToday(),
@@ -61,11 +84,14 @@ function App() {
     lugar_predeterminado_id: "",
   });
 
+  const [lugarEditando, setLugarEditando] = useState(null);
+
   async function cargarSolicitudes() {
     const { data, error } = await supabase
       .from("solicitudes")
       .select("*")
       .order("fecha", { ascending: true })
+      .order("orden_ruta", { ascending: true, nullsFirst: false })
       .order("created_at", { ascending: false });
 
     if (error) {
@@ -101,10 +127,7 @@ function App() {
 
   function elegirLugar(id) {
     if (!id) {
-      setForm({
-        ...form,
-        lugar_predeterminado_id: "",
-      });
+      setForm({ ...form, lugar_predeterminado_id: "" });
       return;
     }
 
@@ -124,7 +147,6 @@ function App() {
 
   async function guardarLugarPredeterminado(payload) {
     const nombre = window.prompt("¿Con qué nombre querés guardar este lugar? Ej: Taller Pepito");
-
     if (!nombre || !nombre.trim()) return;
 
     const { error } = await supabase.from("lugares_predeterminados").insert({
@@ -184,6 +206,7 @@ function App() {
       trae: form.trae.trim(),
       lugar_predeterminado_id: form.lugar_predeterminado_id || null,
       entregado: null,
+      orden_ruta: null,
     };
 
     const { error } = await supabase.from("solicitudes").insert(payload);
@@ -197,9 +220,7 @@ function App() {
 
     if (!form.lugar_predeterminado_id) {
       const quiereGuardar = window.confirm("Solicitud cargada. ¿Querés guardar esta dirección como lugar predeterminado?");
-      if (quiereGuardar) {
-        await guardarLugarPredeterminado(payload);
-      }
+      if (quiereGuardar) await guardarLugarPredeterminado(payload);
     } else {
       alert("Solicitud cargada.");
     }
@@ -236,21 +257,122 @@ function App() {
     await cargarSolicitudes();
   }
 
+  async function cambiarFecha(id, nuevaFecha) {
+    const { error } = await supabase
+      .from("solicitudes")
+      .update({
+        fecha: nuevaFecha,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", id);
+
+    if (error) {
+      alert("Error cambiando fecha: " + error.message);
+      return;
+    }
+
+    await cargarSolicitudes();
+  }
+
+  async function cambiarOrden(id, nuevoOrden) {
+    const orden = nuevoOrden === "" ? null : Number(nuevoOrden);
+
+    const { error } = await supabase
+      .from("solicitudes")
+      .update({
+        orden_ruta: orden,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", id);
+
+    if (error) {
+      alert("Error cambiando orden: " + error.message);
+      return;
+    }
+
+    await cargarSolicitudes();
+  }
+
+  async function actualizarLugar(lugar) {
+    const { error } = await supabase
+      .from("lugares_predeterminados")
+      .update({
+        nombre: lugar.nombre,
+        direccion: lugar.direccion,
+        contacto: lugar.contacto,
+        telefono: lugar.telefono,
+        detalle_base: lugar.detalle_base,
+        sector_sugerido: lugar.sector_sugerido,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", lugar.id);
+
+    if (error) {
+      alert("Error actualizando lugar: " + error.message);
+      return;
+    }
+
+    setLugarEditando(null);
+    await cargarLugares();
+    alert("Lugar actualizado.");
+  }
+
+  async function desactivarLugar(id) {
+    const confirmar = window.confirm("¿Seguro querés desactivar este lugar predeterminado?");
+    if (!confirmar) return;
+
+    const { error } = await supabase
+      .from("lugares_predeterminados")
+      .update({ activo: false, updated_at: new Date().toISOString() })
+      .eq("id", id);
+
+    if (error) {
+      alert("Error desactivando lugar: " + error.message);
+      return;
+    }
+
+    await cargarLugares();
+  }
+
   const solicitudesVisibles = useMemo(() => {
     if (!fechaFiltro) return solicitudes;
     return solicitudes.filter((s) => s.fecha === fechaFiltro);
   }, [solicitudes, fechaFiltro]);
+
+  const diasSemana = useMemo(() => {
+    return Array.from({ length: 7 }, (_, i) => addDays(semanaInicio, i));
+  }, [semanaInicio]);
+
+  const solicitudesSemana = useMemo(() => {
+    const finSemana = addDays(semanaInicio, 6);
+    return solicitudes.filter((s) => s.fecha >= semanaInicio && s.fecha <= finSemana);
+  }, [solicitudes, semanaInicio]);
 
   const ruta = useMemo(() => {
     return solicitudesVisibles
       .filter((s) => s.entregado !== true)
       .sort((a, b) => {
         if (a.fecha !== b.fecha) return a.fecha.localeCompare(b.fecha);
+
+        const ordenA = a.orden_ruta ?? 9999;
+        const ordenB = b.orden_ruta ?? 9999;
+        if (ordenA !== ordenB) return ordenA - ordenB;
+
         if (a.prioridad === "Urgente" && b.prioridad !== "Urgente") return -1;
         if (a.prioridad !== "Urgente" && b.prioridad === "Urgente") return 1;
+
         return a.direccion.localeCompare(b.direccion, "es");
       });
   }, [solicitudesVisibles]);
+
+  const resumenCarga = useMemo(() => {
+    const pendientes = ruta.filter((s) => s.entregado !== true);
+
+    return {
+      lleva: pendientes.filter((s) => s.lleva).map((s) => `${s.fecha} · ${s.direccion}: ${s.lleva}`),
+      trae: pendientes.filter((s) => s.trae).map((s) => `${s.fecha} · ${s.direccion}: ${s.trae}`),
+    };
+  }, [ruta]);
 
   const stats = useMemo(() => {
     return {
@@ -291,15 +413,11 @@ function App() {
         </header>
 
         <nav className="tabs">
-          <Button variant={tab === "empleado" ? "primary" : "outline"} onClick={() => setTab("empleado")}>
-            Empleado
-          </Button>
-          <Button variant={tab === "coordinacion" ? "primary" : "outline"} onClick={() => setTab("coordinacion")}>
-            Coordinación
-          </Button>
-          <Button variant={tab === "ernesto" ? "primary" : "outline"} onClick={() => setTab("ernesto")}>
-            Ernesto
-          </Button>
+          <Button variant={tab === "empleado" ? "primary" : "outline"} onClick={() => setTab("empleado")}>Empleado</Button>
+          <Button variant={tab === "semana" ? "primary" : "outline"} onClick={() => setTab("semana")}>Semana</Button>
+          <Button variant={tab === "ernesto" ? "primary" : "outline"} onClick={() => setTab("ernesto")}>Ernesto</Button>
+          <Button variant={tab === "resumen" ? "primary" : "outline"} onClick={() => setTab("resumen")}>Resumen carga</Button>
+          <Button variant={tab === "lugares" ? "primary" : "outline"} onClick={() => setTab("lugares")}>Lugares</Button>
         </nav>
 
         {loading ? (
@@ -317,9 +435,7 @@ function App() {
                     <select value={form.lugar_predeterminado_id} onChange={(e) => elegirLugar(e.target.value)}>
                       <option value="">Cargar dirección manual</option>
                       {lugares.map((lugar) => (
-                        <option key={lugar.id} value={lugar.id}>
-                          {lugar.nombre}
-                        </option>
+                        <option key={lugar.id} value={lugar.id}>{lugar.nombre}</option>
                       ))}
                     </select>
                   </Field>
@@ -331,9 +447,7 @@ function App() {
 
                     <Field label="Sector" required>
                       <select value={form.sector} onChange={(e) => setForm({ ...form, sector: e.target.value })}>
-                        {sectores.map((x) => (
-                          <option key={x}>{x}</option>
-                        ))}
+                        {sectores.map((x) => <option key={x}>{x}</option>)}
                       </select>
                     </Field>
                   </div>
@@ -341,48 +455,31 @@ function App() {
                   <div className="grid">
                     <Field label="Tipo de tarea" required>
                       <select value={form.tipo_tarea} onChange={(e) => setForm({ ...form, tipo_tarea: e.target.value })}>
-                        {tipos.map((x) => (
-                          <option key={x}>{x}</option>
-                        ))}
+                        {tipos.map((x) => <option key={x}>{x}</option>)}
                       </select>
                     </Field>
 
                     <Field label="Prioridad" required>
                       <select value={form.prioridad} onChange={(e) => setForm({ ...form, prioridad: e.target.value })}>
-                        {prioridades.map((x) => (
-                          <option key={x}>{x}</option>
-                        ))}
+                        {prioridades.map((x) => <option key={x}>{x}</option>)}
                       </select>
                     </Field>
                   </div>
 
                   <Field label="Dirección completa" required>
-                    <input
-                      placeholder="Ej: Arcos 2140, Belgrano"
-                      value={form.direccion}
-                      onChange={(e) => setForm({ ...form, direccion: e.target.value })}
-                    />
+                    <input placeholder="Ej: Arcos 2140, Belgrano" value={form.direccion} onChange={(e) => setForm({ ...form, direccion: e.target.value })} />
                   </Field>
 
                   <div className="grid">
                     <Field label="Horario" required>
-                      <select
-                        value={form.horario_tipo}
-                        onChange={(e) => setForm({ ...form, horario_tipo: e.target.value, horario_detalle: "" })}
-                      >
-                        {horarios.map((x) => (
-                          <option key={x}>{x}</option>
-                        ))}
+                      <select value={form.horario_tipo} onChange={(e) => setForm({ ...form, horario_tipo: e.target.value, horario_detalle: "" })}>
+                        {horarios.map((x) => <option key={x}>{x}</option>)}
                       </select>
                     </Field>
 
                     {form.horario_tipo !== "Flexible" && (
                       <Field label="Detalle horario" required>
-                        <input
-                          placeholder="Ej: Antes de 15:00 / 10:00 a 13:00"
-                          value={form.horario_detalle}
-                          onChange={(e) => setForm({ ...form, horario_detalle: e.target.value })}
-                        />
+                        <input placeholder="Ej: Antes de 15:00 / 10:00 a 13:00" value={form.horario_detalle} onChange={(e) => setForm({ ...form, horario_detalle: e.target.value })} />
                       </Field>
                     )}
                   </div>
@@ -399,28 +496,16 @@ function App() {
 
                   <div className="grid">
                     <Field label="Qué lleva" required>
-                      <textarea
-                        placeholder="Ej: 3 cajas, prendas, remito, muestras, avíos. Si no lleva nada, escribir: Nada."
-                        value={form.lleva}
-                        onChange={(e) => setForm({ ...form, lleva: e.target.value })}
-                      />
+                      <textarea placeholder="Si no lleva nada, escribir: Nada." value={form.lleva} onChange={(e) => setForm({ ...form, lleva: e.target.value })} />
                     </Field>
 
                     <Field label="Qué trae" required>
-                      <textarea
-                        placeholder="Ej: producción terminada, cambios, bolsas, documentación. Si no trae nada, escribir: Nada."
-                        value={form.trae}
-                        onChange={(e) => setForm({ ...form, trae: e.target.value })}
-                      />
+                      <textarea placeholder="Si no trae nada, escribir: Nada." value={form.trae} onChange={(e) => setForm({ ...form, trae: e.target.value })} />
                     </Field>
                   </div>
 
                   <Field label="Detalle de la tarea">
-                    <textarea
-                      placeholder="Opcional. Aclaración adicional para Ernesto."
-                      value={form.detalle}
-                      onChange={(e) => setForm({ ...form, detalle: e.target.value })}
-                    />
+                    <textarea placeholder="Opcional. Aclaración adicional para Ernesto." value={form.detalle} onChange={(e) => setForm({ ...form, detalle: e.target.value })} />
                   </Field>
 
                   <Button type="submit">Enviar solicitud</Button>
@@ -428,41 +513,49 @@ function App() {
               </section>
             )}
 
-            {tab === "coordinacion" && (
+            {tab === "semana" && (
               <section className="card">
                 <div className="topline">
                   <div>
-                    <p className="eyebrow">Coordinación</p>
-                    <h2>Panel de solicitudes</h2>
-                    <p className="muted">Por defecto se muestran todas las solicitudes. Podés filtrar por fecha.</p>
+                    <p className="eyebrow">Vista semanal</p>
+                    <h2>Semana del {semanaInicio}</h2>
+                    <p className="muted">Podés mover solicitudes de día si conviene resolverlas antes.</p>
                   </div>
 
-                  <div className="actions">
-                    <Field label="Filtrar por fecha">
-                      <input type="date" value={fechaFiltro} onChange={(e) => setFechaFiltro(e.target.value)} />
-                    </Field>
-                    <Button variant="outline" type="button" onClick={() => setFechaFiltro("")}>
-                      Ver todas
-                    </Button>
-                  </div>
+                  <Field label="Inicio de semana">
+                    <input type="date" value={semanaInicio} onChange={(e) => setSemanaInicio(getMonday(e.target.value))} />
+                  </Field>
                 </div>
 
                 <div className="list">
-                  {solicitudesVisibles.length === 0 && <p className="muted">No hay solicitudes para mostrar.</p>}
+                  {diasSemana.map((dia) => {
+                    const items = solicitudesSemana.filter((s) => s.fecha === dia);
 
-                  {solicitudesVisibles.map((s) => (
-                    <SolicitudCard key={s.id} s={s}>
-                      <Button variant="success" onClick={() => marcar(s.id, true)}>
-                        Entregado
-                      </Button>
-                      <Button variant="danger" onClick={() => marcar(s.id, false)}>
-                        No entregado
-                      </Button>
-                      <Button variant="outline" onClick={() => marcar(s.id, null)}>
-                        Pendiente
-                      </Button>
-                    </SolicitudCard>
-                  ))}
+                    return (
+                      <div key={dia} className="card">
+                        <h2>{formatDateLabel(dia)}</h2>
+
+                        {items.length === 0 && <p className="muted">Sin solicitudes.</p>}
+
+                        <div className="list">
+                          {items.map((s) => (
+                            <SolicitudCard key={s.id} s={s}>
+                              <Field label="Mover a fecha">
+                                <input type="date" value={s.fecha} onChange={(e) => cambiarFecha(s.id, e.target.value)} />
+                              </Field>
+
+                              <Field label="Orden">
+                                <input type="number" min="1" placeholder="Ej: 1" value={s.orden_ruta || ""} onChange={(e) => cambiarOrden(s.id, e.target.value)} />
+                              </Field>
+
+                              <Button variant="success" onClick={() => marcar(s.id, true)}>Entregado</Button>
+                              <Button variant="danger" onClick={() => marcar(s.id, false)}>No entregado</Button>
+                            </SolicitudCard>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </section>
             )}
@@ -481,9 +574,7 @@ function App() {
                       <input type="date" value={fechaFiltro} onChange={(e) => setFechaFiltro(e.target.value)} />
                     </Field>
 
-                    <Button variant="outline" type="button" onClick={() => setFechaFiltro("")}>
-                      Ver todas
-                    </Button>
+                    <Button variant="outline" type="button" onClick={() => setFechaFiltro("")}>Ver todas</Button>
 
                     <a href={`https://wa.me/?text=${whatsappText}`} target="_blank" rel="noreferrer">
                       <Button>WhatsApp</Button>
@@ -491,9 +582,7 @@ function App() {
                   </div>
                 </div>
 
-                <p className="notice">
-                  Esta versión muestra todas las pendientes por defecto. Si filtrás por fecha, solo muestra las paradas de ese día.
-                </p>
+                <p className="notice">Se ordena por fecha, orden manual, urgencia y dirección. Después conectamos optimización real.</p>
 
                 <div className="list">
                   {ruta.length === 0 && <p className="muted">No quedan paradas pendientes para mostrar.</p>}
@@ -507,16 +596,120 @@ function App() {
                           <Button variant="outline">Abrir Maps</Button>
                         </a>
 
-                        <Button variant="success" onClick={() => marcar(s.id, true)}>
-                          Entregado
-                        </Button>
+                        <Field label="Orden">
+                          <input type="number" min="1" placeholder="Ej: 1" value={s.orden_ruta || ""} onChange={(e) => cambiarOrden(s.id, e.target.value)} />
+                        </Field>
 
-                        <Button variant="danger" onClick={() => marcar(s.id, false)}>
-                          No entregado
-                        </Button>
+                        <Button variant="success" onClick={() => marcar(s.id, true)}>Entregado</Button>
+                        <Button variant="danger" onClick={() => marcar(s.id, false)}>No entregado</Button>
                       </SolicitudCard>
                     </div>
                   ))}
+                </div>
+              </section>
+            )}
+
+            {tab === "resumen" && (
+              <section className="card">
+                <div className="topline">
+                  <div>
+                    <p className="eyebrow">Resumen de carga</p>
+                    <h2>Qué lleva y qué trae Ernesto</h2>
+                    <p className="muted">Basado en las paradas pendientes visibles. Podés filtrar por fecha o ver todas.</p>
+                  </div>
+
+                  <div className="actions">
+                    <Field label="Filtrar por fecha">
+                      <input type="date" value={fechaFiltro} onChange={(e) => setFechaFiltro(e.target.value)} />
+                    </Field>
+                    <Button variant="outline" type="button" onClick={() => setFechaFiltro("")}>Ver todas</Button>
+                  </div>
+                </div>
+
+                <div className="grid">
+                  <div className="card">
+                    <h2>Lleva</h2>
+                    {resumenCarga.lleva.length === 0 && <p className="muted">Sin carga registrada para llevar.</p>}
+                    {resumenCarga.lleva.map((item, index) => <p key={index}>{item}</p>)}
+                  </div>
+
+                  <div className="card">
+                    <h2>Trae</h2>
+                    {resumenCarga.trae.length === 0 && <p className="muted">Sin carga registrada para traer.</p>}
+                    {resumenCarga.trae.map((item, index) => <p key={index}>{item}</p>)}
+                  </div>
+                </div>
+              </section>
+            )}
+
+            {tab === "lugares" && (
+              <section className="card">
+                <p className="eyebrow">Lugares predeterminados</p>
+                <h2>Administrar lugares guardados</h2>
+                <p className="muted">Editá datos mal cargados o desactivá lugares que ya no se usan.</p>
+
+                <div className="list">
+                  {lugares.length === 0 && <p className="muted">Todavía no hay lugares guardados.</p>}
+
+                  {lugares.map((lugar) => {
+                    const editando = lugarEditando?.id === lugar.id;
+                    const item = editando ? lugarEditando : lugar;
+
+                    return (
+                      <div key={lugar.id} className="request">
+                        <div style={{ flex: 1 }}>
+                          {editando ? (
+                            <div className="form">
+                              <Field label="Nombre">
+                                <input value={item.nombre || ""} onChange={(e) => setLugarEditando({ ...item, nombre: e.target.value })} />
+                              </Field>
+                              <Field label="Dirección">
+                                <input value={item.direccion || ""} onChange={(e) => setLugarEditando({ ...item, direccion: e.target.value })} />
+                              </Field>
+                              <div className="grid">
+                                <Field label="Contacto">
+                                  <input value={item.contacto || ""} onChange={(e) => setLugarEditando({ ...item, contacto: e.target.value })} />
+                                </Field>
+                                <Field label="Teléfono">
+                                  <input value={item.telefono || ""} onChange={(e) => setLugarEditando({ ...item, telefono: e.target.value })} />
+                                </Field>
+                              </div>
+                              <Field label="Sector sugerido">
+                                <select value={item.sector_sugerido || ""} onChange={(e) => setLugarEditando({ ...item, sector_sugerido: e.target.value })}>
+                                  <option value="">Sin sector sugerido</option>
+                                  {sectores.map((s) => <option key={s}>{s}</option>)}
+                                </select>
+                              </Field>
+                              <Field label="Detalle base">
+                                <textarea value={item.detalle_base || ""} onChange={(e) => setLugarEditando({ ...item, detalle_base: e.target.value })} />
+                              </Field>
+                            </div>
+                          ) : (
+                            <>
+                              <strong>{lugar.nombre}</strong>
+                              <p>{lugar.direccion}</p>
+                              <p className="small">Contacto: {lugar.contacto || "-"} · {lugar.telefono || "-"}</p>
+                              <p className="small">Sector sugerido: {lugar.sector_sugerido || "-"}</p>
+                            </>
+                          )}
+                        </div>
+
+                        <div className="actions">
+                          {editando ? (
+                            <>
+                              <Button variant="success" onClick={() => actualizarLugar(item)}>Guardar</Button>
+                              <Button variant="outline" onClick={() => setLugarEditando(null)}>Cancelar</Button>
+                            </>
+                          ) : (
+                            <>
+                              <Button variant="outline" onClick={() => setLugarEditando(lugar)}>Editar</Button>
+                              <Button variant="danger" onClick={() => desactivarLugar(lugar.id)}>Desactivar</Button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </section>
             )}
@@ -560,6 +753,7 @@ function SolicitudCard({ s, children }) {
           <Badge entregado={s.entregado} />
 
           {s.prioridad === "Urgente" && <span className="badge urgent">Urgente</span>}
+          {s.orden_ruta && <span className="badge pending">Orden {s.orden_ruta}</span>}
         </div>
 
         <p>{s.direccion}</p>

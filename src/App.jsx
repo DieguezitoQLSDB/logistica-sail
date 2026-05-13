@@ -369,8 +369,8 @@ function App() {
     const pendientes = ruta.filter((s) => s.entregado !== true);
 
     return {
-      lleva: pendientes.filter((s) => s.lleva).map((s) => `${s.fecha} · ${s.direccion}: ${s.lleva}`),
-      trae: pendientes.filter((s) => s.trae).map((s) => `${s.fecha} · ${s.direccion}: ${s.trae}`),
+      lleva: pendientes.filter((s) => s.lleva).map((s) => `${s.fecha} · ${s.contacto} · ${s.direccion}: ${s.lleva}`),
+      trae: pendientes.filter((s) => s.trae).map((s) => `${s.fecha} · ${s.contacto} · ${s.direccion}: ${s.lleva}`),
     };
   }, [ruta]);
 

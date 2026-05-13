@@ -41,7 +41,9 @@ function App() {
   const [solicitudes, setSolicitudes] = useState([]);
   const [lugares, setLugares] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [fechaFiltro, setFechaFiltro] = useState(getToday());
+
+  // Vacío = mostrar todas las fechas
+  const [fechaFiltro, setFechaFiltro] = useState("");
 
   const [form, setForm] = useState({
     fecha: getToday(),
@@ -63,6 +65,7 @@ function App() {
     const { data, error } = await supabase
       .from("solicitudes")
       .select("*")
+      .order("fecha", { ascending: true })
       .order("created_at", { ascending: false });
 
     if (error) {
@@ -129,7 +132,7 @@ function App() {
       direccion: payload.direccion,
       contacto: payload.contacto,
       telefono: payload.telefono,
-      detalle_base: payload.detalle,
+      detalle_base: payload.detalle || "",
       sector_sugerido: payload.sector,
       activo: true,
     });
@@ -154,9 +157,10 @@ function App() {
       !form.prioridad ||
       !form.contacto.trim() ||
       !form.telefono.trim() ||
-      !form.detalle.trim()
+      !form.lleva.trim() ||
+      !form.trae.trim()
     ) {
-      alert("Completá todos los campos obligatorios.");
+      alert("Completá todos los campos obligatorios marcados con *.");
       return;
     }
 
@@ -232,35 +236,37 @@ function App() {
     await cargarSolicitudes();
   }
 
-  const solicitudesFiltradasPorFecha = useMemo(() => {
+  const solicitudesVisibles = useMemo(() => {
+    if (!fechaFiltro) return solicitudes;
     return solicitudes.filter((s) => s.fecha === fechaFiltro);
   }, [solicitudes, fechaFiltro]);
 
   const ruta = useMemo(() => {
-    return solicitudesFiltradasPorFecha
+    return solicitudesVisibles
       .filter((s) => s.entregado !== true)
       .sort((a, b) => {
+        if (a.fecha !== b.fecha) return a.fecha.localeCompare(b.fecha);
         if (a.prioridad === "Urgente" && b.prioridad !== "Urgente") return -1;
         if (a.prioridad !== "Urgente" && b.prioridad === "Urgente") return 1;
         return a.direccion.localeCompare(b.direccion, "es");
       });
-  }, [solicitudesFiltradasPorFecha]);
+  }, [solicitudesVisibles]);
 
   const stats = useMemo(() => {
     return {
-      total: solicitudesFiltradasPorFecha.length,
-      pendientes: solicitudesFiltradasPorFecha.filter((s) => s.entregado === null).length,
-      entregadas: solicitudesFiltradasPorFecha.filter((s) => s.entregado === true).length,
-      noEntregadas: solicitudesFiltradasPorFecha.filter((s) => s.entregado === false).length,
-      urgentes: solicitudesFiltradasPorFecha.filter((s) => s.prioridad === "Urgente" && s.entregado !== true).length,
+      total: solicitudesVisibles.length,
+      pendientes: solicitudesVisibles.filter((s) => s.entregado === null).length,
+      entregadas: solicitudesVisibles.filter((s) => s.entregado === true).length,
+      noEntregadas: solicitudesVisibles.filter((s) => s.entregado === false).length,
+      urgentes: solicitudesVisibles.filter((s) => s.prioridad === "Urgente" && s.entregado !== true).length,
     };
-  }, [solicitudesFiltradasPorFecha]);
+  }, [solicitudesVisibles]);
 
   const whatsappText = encodeURIComponent(
-    `Ernesto, ruta sugerida de Logística Sail para ${fechaFiltro}:\n\n${ruta
+    `Ernesto, ruta sugerida de Logística Sail${fechaFiltro ? ` para ${fechaFiltro}` : ""}:\n\n${ruta
       .map(
         (s, i) =>
-          `${i + 1}) ${s.direccion}\n${s.tipo_tarea} - ${s.detalle}\nLleva: ${s.lleva || "-"}\nTrae: ${s.trae || "-"}\nContacto: ${s.contacto} ${s.telefono}\nHorario: ${getHorario(s)}`
+          `${i + 1}) ${s.fecha} - ${s.direccion}\n${s.tipo_tarea} - ${s.detalle || "Sin detalle adicional"}\nLleva: ${s.lleva || "-"}\nTrae: ${s.trae || "-"}\nContacto: ${s.contacto} ${s.telefono}\nHorario: ${getHorario(s)}`
       )
       .join("\n\n")}\n\nMarcá cada parada como Entregado o No entregado al finalizar.`
   );
@@ -304,7 +310,7 @@ function App() {
               <section className="card">
                 <p className="eyebrow">Empleado</p>
                 <h2>Nueva solicitud para Ernesto</h2>
-                <p className="muted">Cargá solo lo necesario: qué tiene que hacer, dónde, cuándo y con quién hablar.</p>
+                <p className="muted">Los campos marcados con * son obligatorios.</p>
 
                 <form onSubmit={crearSolicitud} className="form">
                   <Field label="Lugar predeterminado">
@@ -319,11 +325,11 @@ function App() {
                   </Field>
 
                   <div className="grid">
-                    <Field label="Fecha">
+                    <Field label="Fecha" required>
                       <input type="date" value={form.fecha} onChange={(e) => setForm({ ...form, fecha: e.target.value })} />
                     </Field>
 
-                    <Field label="Sector">
+                    <Field label="Sector" required>
                       <select value={form.sector} onChange={(e) => setForm({ ...form, sector: e.target.value })}>
                         {sectores.map((x) => (
                           <option key={x}>{x}</option>
@@ -333,7 +339,7 @@ function App() {
                   </div>
 
                   <div className="grid">
-                    <Field label="Tipo de tarea">
+                    <Field label="Tipo de tarea" required>
                       <select value={form.tipo_tarea} onChange={(e) => setForm({ ...form, tipo_tarea: e.target.value })}>
                         {tipos.map((x) => (
                           <option key={x}>{x}</option>
@@ -341,7 +347,7 @@ function App() {
                       </select>
                     </Field>
 
-                    <Field label="Prioridad">
+                    <Field label="Prioridad" required>
                       <select value={form.prioridad} onChange={(e) => setForm({ ...form, prioridad: e.target.value })}>
                         {prioridades.map((x) => (
                           <option key={x}>{x}</option>
@@ -350,7 +356,7 @@ function App() {
                     </Field>
                   </div>
 
-                  <Field label="Dirección completa">
+                  <Field label="Dirección completa" required>
                     <input
                       placeholder="Ej: Arcos 2140, Belgrano"
                       value={form.direccion}
@@ -359,7 +365,7 @@ function App() {
                   </Field>
 
                   <div className="grid">
-                    <Field label="Horario">
+                    <Field label="Horario" required>
                       <select
                         value={form.horario_tipo}
                         onChange={(e) => setForm({ ...form, horario_tipo: e.target.value, horario_detalle: "" })}
@@ -371,7 +377,7 @@ function App() {
                     </Field>
 
                     {form.horario_tipo !== "Flexible" && (
-                      <Field label="Detalle horario">
+                      <Field label="Detalle horario" required>
                         <input
                           placeholder="Ej: Antes de 15:00 / 10:00 a 13:00"
                           value={form.horario_detalle}
@@ -382,27 +388,27 @@ function App() {
                   </div>
 
                   <div className="grid">
-                    <Field label="Contacto en destino">
+                    <Field label="Contacto en destino" required>
                       <input placeholder="Nombre" value={form.contacto} onChange={(e) => setForm({ ...form, contacto: e.target.value })} />
                     </Field>
 
-                    <Field label="Teléfono">
+                    <Field label="Teléfono" required>
                       <input placeholder="WhatsApp" value={form.telefono} onChange={(e) => setForm({ ...form, telefono: e.target.value })} />
                     </Field>
                   </div>
 
                   <div className="grid">
-                    <Field label="Qué lleva">
+                    <Field label="Qué lleva" required>
                       <textarea
-                        placeholder="Ej: 3 cajas, prendas, remito, muestras, avíos"
+                        placeholder="Ej: 3 cajas, prendas, remito, muestras, avíos. Si no lleva nada, escribir: Nada."
                         value={form.lleva}
                         onChange={(e) => setForm({ ...form, lleva: e.target.value })}
                       />
                     </Field>
 
-                    <Field label="Qué trae">
+                    <Field label="Qué trae" required>
                       <textarea
-                        placeholder="Ej: producción terminada, cambios, bolsas, documentación"
+                        placeholder="Ej: producción terminada, cambios, bolsas, documentación. Si no trae nada, escribir: Nada."
                         value={form.trae}
                         onChange={(e) => setForm({ ...form, trae: e.target.value })}
                       />
@@ -411,7 +417,7 @@ function App() {
 
                   <Field label="Detalle de la tarea">
                     <textarea
-                      placeholder="Qué tiene que hacer Ernesto en este punto"
+                      placeholder="Opcional. Aclaración adicional para Ernesto."
                       value={form.detalle}
                       onChange={(e) => setForm({ ...form, detalle: e.target.value })}
                     />
@@ -428,17 +434,23 @@ function App() {
                   <div>
                     <p className="eyebrow">Coordinación</p>
                     <h2>Panel de solicitudes</h2>
+                    <p className="muted">Por defecto se muestran todas las solicitudes. Podés filtrar por fecha.</p>
                   </div>
 
-                  <Field label="Ver fecha">
-                    <input type="date" value={fechaFiltro} onChange={(e) => setFechaFiltro(e.target.value)} />
-                  </Field>
+                  <div className="actions">
+                    <Field label="Filtrar por fecha">
+                      <input type="date" value={fechaFiltro} onChange={(e) => setFechaFiltro(e.target.value)} />
+                    </Field>
+                    <Button variant="outline" type="button" onClick={() => setFechaFiltro("")}>
+                      Ver todas
+                    </Button>
+                  </div>
                 </div>
 
                 <div className="list">
-                  {solicitudesFiltradasPorFecha.length === 0 && <p className="muted">No hay solicitudes para esta fecha.</p>}
+                  {solicitudesVisibles.length === 0 && <p className="muted">No hay solicitudes para mostrar.</p>}
 
-                  {solicitudesFiltradasPorFecha.map((s) => (
+                  {solicitudesVisibles.map((s) => (
                     <SolicitudCard key={s.id} s={s}>
                       <Button variant="success" onClick={() => marcar(s.id, true)}>
                         Entregado
@@ -461,12 +473,17 @@ function App() {
                   <div>
                     <p className="eyebrow">Transportista</p>
                     <h2>Ruta de Ernesto</h2>
+                    <p className="muted">Por defecto ve todas las paradas pendientes. También puede filtrar por fecha.</p>
                   </div>
 
                   <div className="actions">
-                    <Field label="Ver fecha">
+                    <Field label="Filtrar por fecha">
                       <input type="date" value={fechaFiltro} onChange={(e) => setFechaFiltro(e.target.value)} />
                     </Field>
+
+                    <Button variant="outline" type="button" onClick={() => setFechaFiltro("")}>
+                      Ver todas
+                    </Button>
 
                     <a href={`https://wa.me/?text=${whatsappText}`} target="_blank" rel="noreferrer">
                       <Button>WhatsApp</Button>
@@ -475,11 +492,11 @@ function App() {
                 </div>
 
                 <p className="notice">
-                  Esta versión filtra por fecha, ordena pendientes y pone las urgentes primero. La optimización real por distancia/tráfico se conecta después con Google Maps API.
+                  Esta versión muestra todas las pendientes por defecto. Si filtrás por fecha, solo muestra las paradas de ese día.
                 </p>
 
                 <div className="list">
-                  {ruta.length === 0 && <p className="muted">No quedan paradas pendientes para esta fecha.</p>}
+                  {ruta.length === 0 && <p className="muted">No quedan paradas pendientes para mostrar.</p>}
 
                   {ruta.map((s, i) => (
                     <div key={s.id} className="route-item">
@@ -519,10 +536,13 @@ function Stat({ label, value }) {
   );
 }
 
-function Field({ label, children }) {
+function Field({ label, required, children }) {
   return (
     <label className="field">
-      <span>{label}</span>
+      <span>
+        {label}
+        {required && <span className="required"> *</span>}
+      </span>
       {children}
     </label>
   );
@@ -534,7 +554,7 @@ function SolicitudCard({ s, children }) {
       <div>
         <div className="request-head">
           <strong>
-            {s.tipo_tarea} · {s.sector}
+            {s.fecha} · {s.tipo_tarea} · {s.sector}
           </strong>
 
           <Badge entregado={s.entregado} />
@@ -545,15 +565,13 @@ function SolicitudCard({ s, children }) {
         <p>{s.direccion}</p>
         <p className="muted">{getHorario(s)}</p>
 
-        {(s.lleva || s.trae) && (
-          <div className="notice">
-            <strong>Lleva:</strong> {s.lleva || "-"}
-            <br />
-            <strong>Trae:</strong> {s.trae || "-"}
-          </div>
-        )}
+        <div className="notice">
+          <strong>Lleva:</strong> {s.lleva || "-"}
+          <br />
+          <strong>Trae:</strong> {s.trae || "-"}
+        </div>
 
-        <p>{s.detalle}</p>
+        {s.detalle && <p>{s.detalle}</p>}
 
         <p className="small">
           Contacto: {s.contacto} · {s.telefono}

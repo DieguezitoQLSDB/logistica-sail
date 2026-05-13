@@ -39,7 +39,9 @@ function Badge({ entregado }) {
 function App() {
   const [tab, setTab] = useState("empleado");
   const [solicitudes, setSolicitudes] = useState([]);
+  const [lugares, setLugares] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [fechaFiltro, setFechaFiltro] = useState(getToday());
 
   const [form, setForm] = useState({
     fecha: getToday(),
@@ -52,11 +54,12 @@ function App() {
     contacto: "",
     telefono: "",
     detalle: "",
+    lleva: "",
+    trae: "",
+    lugar_predeterminado_id: "",
   });
 
   async function cargarSolicitudes() {
-    setLoading(true);
-
     const { data, error } = await supabase
       .from("solicitudes")
       .select("*")
@@ -67,13 +70,78 @@ function App() {
     } else {
       setSolicitudes(data || []);
     }
+  }
 
+  async function cargarLugares() {
+    const { data, error } = await supabase
+      .from("lugares_predeterminados")
+      .select("*")
+      .eq("activo", true)
+      .order("nombre", { ascending: true });
+
+    if (error) {
+      alert("Error cargando lugares predeterminados: " + error.message);
+    } else {
+      setLugares(data || []);
+    }
+  }
+
+  async function cargarTodo() {
+    setLoading(true);
+    await Promise.all([cargarSolicitudes(), cargarLugares()]);
     setLoading(false);
   }
 
   useEffect(() => {
-    cargarSolicitudes();
+    cargarTodo();
   }, []);
+
+  function elegirLugar(id) {
+    if (!id) {
+      setForm({
+        ...form,
+        lugar_predeterminado_id: "",
+      });
+      return;
+    }
+
+    const lugar = lugares.find((l) => l.id === id);
+    if (!lugar) return;
+
+    setForm({
+      ...form,
+      lugar_predeterminado_id: lugar.id,
+      direccion: lugar.direccion || "",
+      contacto: lugar.contacto || "",
+      telefono: lugar.telefono || "",
+      detalle: lugar.detalle_base || form.detalle,
+      sector: lugar.sector_sugerido || form.sector,
+    });
+  }
+
+  async function guardarLugarPredeterminado(payload) {
+    const nombre = window.prompt("¿Con qué nombre querés guardar este lugar? Ej: Taller Pepito");
+
+    if (!nombre || !nombre.trim()) return;
+
+    const { error } = await supabase.from("lugares_predeterminados").insert({
+      nombre: nombre.trim(),
+      direccion: payload.direccion,
+      contacto: payload.contacto,
+      telefono: payload.telefono,
+      detalle_base: payload.detalle,
+      sector_sugerido: payload.sector,
+      activo: true,
+    });
+
+    if (error) {
+      alert("Error guardando lugar predeterminado: " + error.message);
+      return;
+    }
+
+    await cargarLugares();
+    alert("Lugar guardado como predeterminado.");
+  }
 
   async function crearSolicitud(e) {
     e.preventDefault();
@@ -98,12 +166,19 @@ function App() {
     }
 
     const payload = {
-      ...form,
+      fecha: form.fecha,
+      sector: form.sector,
+      tipo_tarea: form.tipo_tarea,
       direccion: form.direccion.trim(),
+      horario_tipo: form.horario_tipo,
+      horario_detalle: form.horario_tipo === "Flexible" ? "Flexible" : form.horario_detalle.trim(),
+      prioridad: form.prioridad,
       contacto: form.contacto.trim(),
       telefono: form.telefono.trim(),
       detalle: form.detalle.trim(),
-      horario_detalle: form.horario_tipo === "Flexible" ? "Flexible" : form.horario_detalle.trim(),
+      lleva: form.lleva.trim(),
+      trae: form.trae.trim(),
+      lugar_predeterminado_id: form.lugar_predeterminado_id || null,
       entregado: null,
     };
 
@@ -112,6 +187,17 @@ function App() {
     if (error) {
       alert("Error guardando solicitud: " + error.message);
       return;
+    }
+
+    await cargarSolicitudes();
+
+    if (!form.lugar_predeterminado_id) {
+      const quiereGuardar = window.confirm("Solicitud cargada. ¿Querés guardar esta dirección como lugar predeterminado?");
+      if (quiereGuardar) {
+        await guardarLugarPredeterminado(payload);
+      }
+    } else {
+      alert("Solicitud cargada.");
     }
 
     setForm({
@@ -123,10 +209,10 @@ function App() {
       contacto: "",
       telefono: "",
       detalle: "",
+      lleva: "",
+      trae: "",
+      lugar_predeterminado_id: "",
     });
-
-    await cargarSolicitudes();
-    alert("Solicitud cargada.");
   }
 
   async function marcar(id, value) {
@@ -146,31 +232,35 @@ function App() {
     await cargarSolicitudes();
   }
 
+  const solicitudesFiltradasPorFecha = useMemo(() => {
+    return solicitudes.filter((s) => s.fecha === fechaFiltro);
+  }, [solicitudes, fechaFiltro]);
+
   const ruta = useMemo(() => {
-    return solicitudes
+    return solicitudesFiltradasPorFecha
       .filter((s) => s.entregado !== true)
       .sort((a, b) => {
         if (a.prioridad === "Urgente" && b.prioridad !== "Urgente") return -1;
         if (a.prioridad !== "Urgente" && b.prioridad === "Urgente") return 1;
         return a.direccion.localeCompare(b.direccion, "es");
       });
-  }, [solicitudes]);
+  }, [solicitudesFiltradasPorFecha]);
 
   const stats = useMemo(() => {
     return {
-      total: solicitudes.length,
-      pendientes: solicitudes.filter((s) => s.entregado === null).length,
-      entregadas: solicitudes.filter((s) => s.entregado === true).length,
-      noEntregadas: solicitudes.filter((s) => s.entregado === false).length,
-      urgentes: solicitudes.filter((s) => s.prioridad === "Urgente" && s.entregado !== true).length,
+      total: solicitudesFiltradasPorFecha.length,
+      pendientes: solicitudesFiltradasPorFecha.filter((s) => s.entregado === null).length,
+      entregadas: solicitudesFiltradasPorFecha.filter((s) => s.entregado === true).length,
+      noEntregadas: solicitudesFiltradasPorFecha.filter((s) => s.entregado === false).length,
+      urgentes: solicitudesFiltradasPorFecha.filter((s) => s.prioridad === "Urgente" && s.entregado !== true).length,
     };
-  }, [solicitudes]);
+  }, [solicitudesFiltradasPorFecha]);
 
   const whatsappText = encodeURIComponent(
-    `Ernesto, ruta sugerida de Logística Sail:\n\n${ruta
+    `Ernesto, ruta sugerida de Logística Sail para ${fechaFiltro}:\n\n${ruta
       .map(
         (s, i) =>
-          `${i + 1}) ${s.direccion}\n${s.tipo_tarea} - ${s.detalle}\nContacto: ${s.contacto} ${s.telefono}\nHorario: ${getHorario(s)}`
+          `${i + 1}) ${s.direccion}\n${s.tipo_tarea} - ${s.detalle}\nLleva: ${s.lleva || "-"}\nTrae: ${s.trae || "-"}\nContacto: ${s.contacto} ${s.telefono}\nHorario: ${getHorario(s)}`
       )
       .join("\n\n")}\n\nMarcá cada parada como Entregado o No entregado al finalizar.`
   );
@@ -217,6 +307,17 @@ function App() {
                 <p className="muted">Cargá solo lo necesario: qué tiene que hacer, dónde, cuándo y con quién hablar.</p>
 
                 <form onSubmit={crearSolicitud} className="form">
+                  <Field label="Lugar predeterminado">
+                    <select value={form.lugar_predeterminado_id} onChange={(e) => elegirLugar(e.target.value)}>
+                      <option value="">Cargar dirección manual</option>
+                      {lugares.map((lugar) => (
+                        <option key={lugar.id} value={lugar.id}>
+                          {lugar.nombre}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+
                   <div className="grid">
                     <Field label="Fecha">
                       <input type="date" value={form.fecha} onChange={(e) => setForm({ ...form, fecha: e.target.value })} />
@@ -290,9 +391,27 @@ function App() {
                     </Field>
                   </div>
 
+                  <div className="grid">
+                    <Field label="Qué lleva">
+                      <textarea
+                        placeholder="Ej: 3 cajas, prendas, remito, muestras, avíos"
+                        value={form.lleva}
+                        onChange={(e) => setForm({ ...form, lleva: e.target.value })}
+                      />
+                    </Field>
+
+                    <Field label="Qué trae">
+                      <textarea
+                        placeholder="Ej: producción terminada, cambios, bolsas, documentación"
+                        value={form.trae}
+                        onChange={(e) => setForm({ ...form, trae: e.target.value })}
+                      />
+                    </Field>
+                  </div>
+
                   <Field label="Detalle de la tarea">
                     <textarea
-                      placeholder="Qué tiene que llevar, retirar, entregar o hacer Ernesto"
+                      placeholder="Qué tiene que hacer Ernesto en este punto"
                       value={form.detalle}
                       onChange={(e) => setForm({ ...form, detalle: e.target.value })}
                     />
@@ -305,13 +424,21 @@ function App() {
 
             {tab === "coordinacion" && (
               <section className="card">
-                <p className="eyebrow">Coordinación</p>
-                <h2>Panel de solicitudes</h2>
+                <div className="topline">
+                  <div>
+                    <p className="eyebrow">Coordinación</p>
+                    <h2>Panel de solicitudes</h2>
+                  </div>
+
+                  <Field label="Ver fecha">
+                    <input type="date" value={fechaFiltro} onChange={(e) => setFechaFiltro(e.target.value)} />
+                  </Field>
+                </div>
 
                 <div className="list">
-                  {solicitudes.length === 0 && <p className="muted">Todavía no hay solicitudes.</p>}
+                  {solicitudesFiltradasPorFecha.length === 0 && <p className="muted">No hay solicitudes para esta fecha.</p>}
 
-                  {solicitudes.map((s) => (
+                  {solicitudesFiltradasPorFecha.map((s) => (
                     <SolicitudCard key={s.id} s={s}>
                       <Button variant="success" onClick={() => marcar(s.id, true)}>
                         Entregado
@@ -336,17 +463,23 @@ function App() {
                     <h2>Ruta de Ernesto</h2>
                   </div>
 
-                  <a href={`https://wa.me/?text=${whatsappText}`} target="_blank" rel="noreferrer">
-                    <Button>WhatsApp</Button>
-                  </a>
+                  <div className="actions">
+                    <Field label="Ver fecha">
+                      <input type="date" value={fechaFiltro} onChange={(e) => setFechaFiltro(e.target.value)} />
+                    </Field>
+
+                    <a href={`https://wa.me/?text=${whatsappText}`} target="_blank" rel="noreferrer">
+                      <Button>WhatsApp</Button>
+                    </a>
+                  </div>
                 </div>
 
                 <p className="notice">
-                  Esta versión ordena pendientes y pone las urgentes primero. La optimización real por distancia/tráfico se conecta después con Google Maps API.
+                  Esta versión filtra por fecha, ordena pendientes y pone las urgentes primero. La optimización real por distancia/tráfico se conecta después con Google Maps API.
                 </p>
 
                 <div className="list">
-                  {ruta.length === 0 && <p className="muted">No quedan paradas pendientes.</p>}
+                  {ruta.length === 0 && <p className="muted">No quedan paradas pendientes para esta fecha.</p>}
 
                   {ruta.map((s, i) => (
                     <div key={s.id} className="route-item">
@@ -411,6 +544,15 @@ function SolicitudCard({ s, children }) {
 
         <p>{s.direccion}</p>
         <p className="muted">{getHorario(s)}</p>
+
+        {(s.lleva || s.trae) && (
+          <div className="notice">
+            <strong>Lleva:</strong> {s.lleva || "-"}
+            <br />
+            <strong>Trae:</strong> {s.trae || "-"}
+          </div>
+        )}
+
         <p>{s.detalle}</p>
 
         <p className="small">

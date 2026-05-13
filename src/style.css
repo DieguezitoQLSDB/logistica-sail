@@ -1,0 +1,319 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: Arial, Helvetica, sans-serif;
+  background: #f5f5f4;
+  color: #171717;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+.page {
+  min-height: 100vh;
+  padding: 24px;
+}
+
+.container {
+  max-width: 1120px;
+  margin: 0 auto;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  align-items: flex-end;
+  margin-bottom: 24px;
+}
+
+.eyebrow {
+  margin: 0 0 6px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: #737373;
+}
+
+h1 {
+  margin: 0;
+  font-size: 40px;
+  line-height: 1.05;
+}
+
+h2 {
+  margin: 0 0 8px;
+  font-size: 24px;
+}
+
+.subtitle,
+.muted {
+  color: #525252;
+}
+
+.subtitle {
+  max-width: 620px;
+  margin: 8px 0 0;
+}
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(72px, 1fr));
+  gap: 8px;
+}
+
+.stat {
+  background: white;
+  border-radius: 18px;
+  padding: 12px;
+  text-align: center;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+}
+
+.stat strong {
+  display: block;
+  font-size: 22px;
+}
+
+.stat span {
+  font-size: 12px;
+  color: #737373;
+}
+
+.tabs {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.card {
+  background: white;
+  border-radius: 22px;
+  padding: 22px;
+  box-shadow: 0 1px 6px rgba(0,0,0,0.08);
+}
+
+.form {
+  display: grid;
+  gap: 14px;
+  margin-top: 18px;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.field {
+  display: grid;
+  gap: 6px;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.field input,
+.field select,
+.field textarea {
+  width: 100%;
+  border: 1px solid #d4d4d4;
+  border-radius: 14px;
+  padding: 11px 12px;
+  background: white;
+  color: #171717;
+  font-weight: 400;
+}
+
+.field textarea {
+  min-height: 96px;
+  resize: vertical;
+}
+
+.btn {
+  border: 0;
+  border-radius: 14px;
+  padding: 10px 14px;
+  cursor: pointer;
+  font-weight: 700;
+  transition: 0.15s ease;
+}
+
+.btn.primary {
+  background: #171717;
+  color: white;
+}
+
+.btn.primary:hover {
+  background: #404040;
+}
+
+.btn.outline {
+  background: white;
+  color: #171717;
+  border: 1px solid #d4d4d4;
+}
+
+.btn.outline:hover {
+  background: #f5f5f5;
+}
+
+.btn.success {
+  background: #ecfdf5;
+  color: #047857;
+  border: 1px solid #a7f3d0;
+}
+
+.btn.danger {
+  background: #fef2f2;
+  color: #b91c1c;
+  border: 1px solid #fecaca;
+}
+
+.list {
+  display: grid;
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.request {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  border: 1px solid #e5e5e5;
+  border-radius: 18px;
+  padding: 16px;
+}
+
+.request p {
+  margin: 7px 0;
+}
+
+.request-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 5px 10px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.badge.ok {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.badge.bad {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.badge.pending {
+  background: #f5f5f5;
+  color: #525252;
+}
+
+.badge.urgent {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.small {
+  font-size: 12px;
+  color: #737373;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: flex-start;
+  justify-content: flex-end;
+}
+
+.topline {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.notice {
+  margin: 14px 0 0;
+  background: #f5f5f5;
+  border-radius: 16px;
+  padding: 12px;
+  color: #525252;
+  font-size: 14px;
+}
+
+.route-item {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.route-number {
+  min-width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  background: #171717;
+  color: white;
+  display: grid;
+  place-items: center;
+  font-weight: 800;
+}
+
+.route-item .request {
+  flex: 1;
+}
+
+a {
+  text-decoration: none;
+}
+
+@media (max-width: 820px) {
+  .page {
+    padding: 14px;
+  }
+
+  .header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .stats {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .grid,
+  .tabs {
+    grid-template-columns: 1fr;
+  }
+
+  .request {
+    flex-direction: column;
+  }
+
+  .actions {
+    justify-content: flex-start;
+  }
+
+  .topline {
+    flex-direction: column;
+  }
+}

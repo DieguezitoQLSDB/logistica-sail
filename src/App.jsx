@@ -68,6 +68,9 @@ function App() {
   const [fechaFiltro, setFechaFiltro] = useState("");
   const [semanaInicio, setSemanaInicio] = useState(getMonday());
 
+  const [solicitudEditando, setSolicitudEditando] = useState(null);
+  const [lugarEditando, setLugarEditando] = useState(null);
+
   const [form, setForm] = useState({
     fecha: getToday(),
     sector: "Ventas",
@@ -83,8 +86,6 @@ function App() {
     trae: "",
     lugar_predeterminado_id: "",
   });
-
-  const [lugarEditando, setLugarEditando] = useState(null);
 
   async function cargarSolicitudes() {
     const { data, error } = await supabase
@@ -142,6 +143,29 @@ function App() {
       telefono: lugar.telefono || "",
       detalle: lugar.detalle_base || form.detalle,
       sector: lugar.sector_sugerido || form.sector,
+    });
+  }
+
+  function elegirLugarEdicion(id) {
+    if (!id) {
+      setSolicitudEditando({
+        ...solicitudEditando,
+        lugar_predeterminado_id: "",
+      });
+      return;
+    }
+
+    const lugar = lugares.find((l) => l.id === id);
+    if (!lugar) return;
+
+    setSolicitudEditando({
+      ...solicitudEditando,
+      lugar_predeterminado_id: lugar.id,
+      direccion: lugar.direccion || "",
+      contacto: lugar.contacto || "",
+      telefono: lugar.telefono || "",
+      detalle: lugar.detalle_base || solicitudEditando.detalle,
+      sector: lugar.sector_sugerido || solicitudEditando.sector,
     });
   }
 
@@ -238,6 +262,90 @@ function App() {
       trae: "",
       lugar_predeterminado_id: "",
     });
+  }
+
+  function empezarEdicion(s) {
+    setSolicitudEditando({
+      ...s,
+      horario_detalle: s.horario_detalle || "",
+      detalle: s.detalle || "",
+      lleva: s.lleva || "",
+      trae: s.trae || "",
+      lugar_predeterminado_id: s.lugar_predeterminado_id || "",
+      orden_ruta: s.orden_ruta || "",
+    });
+
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  async function guardarCambiosSolicitud(e) {
+    e.preventDefault();
+
+    if (
+      !solicitudEditando.fecha ||
+      !solicitudEditando.sector ||
+      !solicitudEditando.tipo_tarea ||
+      !solicitudEditando.direccion.trim() ||
+      !solicitudEditando.prioridad ||
+      !solicitudEditando.contacto.trim() ||
+      !solicitudEditando.telefono.trim() ||
+      !solicitudEditando.lleva.trim() ||
+      !solicitudEditando.trae.trim()
+    ) {
+      alert("Completá todos los campos obligatorios marcados con *.");
+      return;
+    }
+
+    if (solicitudEditando.horario_tipo !== "Flexible" && !solicitudEditando.horario_detalle.trim()) {
+      alert("Completá el detalle del horario.");
+      return;
+    }
+
+    const payload = {
+      fecha: solicitudEditando.fecha,
+      sector: solicitudEditando.sector,
+      tipo_tarea: solicitudEditando.tipo_tarea,
+      direccion: solicitudEditando.direccion.trim(),
+      horario_tipo: solicitudEditando.horario_tipo,
+      horario_detalle:
+        solicitudEditando.horario_tipo === "Flexible" ? "Flexible" : solicitudEditando.horario_detalle.trim(),
+      prioridad: solicitudEditando.prioridad,
+      contacto: solicitudEditando.contacto.trim(),
+      telefono: solicitudEditando.telefono.trim(),
+      detalle: solicitudEditando.detalle.trim(),
+      lleva: solicitudEditando.lleva.trim(),
+      trae: solicitudEditando.trae.trim(),
+      lugar_predeterminado_id: solicitudEditando.lugar_predeterminado_id || null,
+      orden_ruta: solicitudEditando.orden_ruta === "" ? null : Number(solicitudEditando.orden_ruta),
+      updated_at: new Date().toISOString(),
+    };
+
+    const { error } = await supabase.from("solicitudes").update(payload).eq("id", solicitudEditando.id);
+
+    if (error) {
+      alert("Error guardando cambios: " + error.message);
+      return;
+    }
+
+    setSolicitudEditando(null);
+    await cargarSolicitudes();
+    alert("Solicitud actualizada.");
+  }
+
+  async function eliminarSolicitud(id) {
+    const confirmar = window.confirm("¿Seguro querés eliminar esta solicitud? Esta acción no se puede deshacer.");
+    if (!confirmar) return;
+
+    const { error } = await supabase.from("solicitudes").delete().eq("id", id);
+
+    if (error) {
+      alert("Error eliminando solicitud: " + error.message);
+      return;
+    }
+
+    setSolicitudEditando(null);
+    await cargarSolicitudes();
+    alert("Solicitud eliminada.");
   }
 
   async function marcar(id, value) {
@@ -370,7 +478,7 @@ function App() {
 
     return {
       lleva: pendientes.filter((s) => s.lleva).map((s) => `${s.fecha} · ${s.contacto} · ${s.direccion}: ${s.lleva}`),
-      trae: pendientes.filter((s) => s.trae).map((s) => `${s.fecha} · ${s.contacto} · ${s.direccion}: ${s.lleva}`),
+      trae: pendientes.filter((s) => s.trae).map((s) => `${s.fecha} · ${s.contacto} · ${s.direccion}: ${s.trae}`),
     };
   }, [ruta]);
 
@@ -412,12 +520,184 @@ function App() {
           </div>
         </header>
 
+        {solicitudEditando && (
+          <section className="card">
+            <p className="eyebrow">Editar solicitud</p>
+            <h2>Modificar o eliminar solicitud</h2>
+            <p className="muted">Editá los datos necesarios. Los campos marcados con * son obligatorios.</p>
+
+            <form onSubmit={guardarCambiosSolicitud} className="form">
+              <Field label="Lugar predeterminado">
+                <select
+                  value={solicitudEditando.lugar_predeterminado_id || ""}
+                  onChange={(e) => elegirLugarEdicion(e.target.value)}
+                >
+                  <option value="">Sin lugar predeterminado</option>
+                  {lugares.map((lugar) => (
+                    <option key={lugar.id} value={lugar.id}>
+                      {lugar.nombre}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+
+              <div className="grid">
+                <Field label="Fecha" required>
+                  <input
+                    type="date"
+                    value={solicitudEditando.fecha}
+                    onChange={(e) => setSolicitudEditando({ ...solicitudEditando, fecha: e.target.value })}
+                  />
+                </Field>
+
+                <Field label="Sector" required>
+                  <select
+                    value={solicitudEditando.sector}
+                    onChange={(e) => setSolicitudEditando({ ...solicitudEditando, sector: e.target.value })}
+                  >
+                    {sectores.map((x) => (
+                      <option key={x}>{x}</option>
+                    ))}
+                  </select>
+                </Field>
+              </div>
+
+              <div className="grid">
+                <Field label="Tipo de tarea" required>
+                  <select
+                    value={solicitudEditando.tipo_tarea}
+                    onChange={(e) => setSolicitudEditando({ ...solicitudEditando, tipo_tarea: e.target.value })}
+                  >
+                    {tipos.map((x) => (
+                      <option key={x}>{x}</option>
+                    ))}
+                  </select>
+                </Field>
+
+                <Field label="Prioridad" required>
+                  <select
+                    value={solicitudEditando.prioridad}
+                    onChange={(e) => setSolicitudEditando({ ...solicitudEditando, prioridad: e.target.value })}
+                  >
+                    {prioridades.map((x) => (
+                      <option key={x}>{x}</option>
+                    ))}
+                  </select>
+                </Field>
+              </div>
+
+              <Field label="Dirección completa" required>
+                <input
+                  value={solicitudEditando.direccion}
+                  onChange={(e) => setSolicitudEditando({ ...solicitudEditando, direccion: e.target.value })}
+                />
+              </Field>
+
+              <div className="grid">
+                <Field label="Horario" required>
+                  <select
+                    value={solicitudEditando.horario_tipo}
+                    onChange={(e) =>
+                      setSolicitudEditando({ ...solicitudEditando, horario_tipo: e.target.value, horario_detalle: "" })
+                    }
+                  >
+                    {horarios.map((x) => (
+                      <option key={x}>{x}</option>
+                    ))}
+                  </select>
+                </Field>
+
+                {solicitudEditando.horario_tipo !== "Flexible" && (
+                  <Field label="Detalle horario" required>
+                    <input
+                      value={solicitudEditando.horario_detalle || ""}
+                      onChange={(e) =>
+                        setSolicitudEditando({ ...solicitudEditando, horario_detalle: e.target.value })
+                      }
+                    />
+                  </Field>
+                )}
+              </div>
+
+              <div className="grid">
+                <Field label="Contacto en destino" required>
+                  <input
+                    value={solicitudEditando.contacto}
+                    onChange={(e) => setSolicitudEditando({ ...solicitudEditando, contacto: e.target.value })}
+                  />
+                </Field>
+
+                <Field label="Teléfono" required>
+                  <input
+                    value={solicitudEditando.telefono}
+                    onChange={(e) => setSolicitudEditando({ ...solicitudEditando, telefono: e.target.value })}
+                  />
+                </Field>
+              </div>
+
+              <div className="grid">
+                <Field label="Qué lleva" required>
+                  <textarea
+                    value={solicitudEditando.lleva || ""}
+                    onChange={(e) => setSolicitudEditando({ ...solicitudEditando, lleva: e.target.value })}
+                  />
+                </Field>
+
+                <Field label="Qué trae" required>
+                  <textarea
+                    value={solicitudEditando.trae || ""}
+                    onChange={(e) => setSolicitudEditando({ ...solicitudEditando, trae: e.target.value })}
+                  />
+                </Field>
+              </div>
+
+              <Field label="Detalle de la tarea">
+                <textarea
+                  value={solicitudEditando.detalle || ""}
+                  onChange={(e) => setSolicitudEditando({ ...solicitudEditando, detalle: e.target.value })}
+                />
+              </Field>
+
+              <Field label="Orden de ruta">
+                <input
+                  type="number"
+                  min="1"
+                  value={solicitudEditando.orden_ruta || ""}
+                  onChange={(e) => setSolicitudEditando({ ...solicitudEditando, orden_ruta: e.target.value })}
+                />
+              </Field>
+
+              <div className="actions">
+                <Button type="submit" variant="success">
+                  Guardar cambios
+                </Button>
+                <Button type="button" variant="outline" onClick={() => setSolicitudEditando(null)}>
+                  Cancelar
+                </Button>
+                <Button type="button" variant="danger" onClick={() => eliminarSolicitud(solicitudEditando.id)}>
+                  Eliminar solicitud
+                </Button>
+              </div>
+            </form>
+          </section>
+        )}
+
         <nav className="tabs">
-          <Button variant={tab === "empleado" ? "primary" : "outline"} onClick={() => setTab("empleado")}>Empleado</Button>
-          <Button variant={tab === "semana" ? "primary" : "outline"} onClick={() => setTab("semana")}>Semana</Button>
-          <Button variant={tab === "ernesto" ? "primary" : "outline"} onClick={() => setTab("ernesto")}>Ernesto</Button>
-          <Button variant={tab === "resumen" ? "primary" : "outline"} onClick={() => setTab("resumen")}>Resumen carga</Button>
-          <Button variant={tab === "lugares" ? "primary" : "outline"} onClick={() => setTab("lugares")}>Lugares</Button>
+          <Button variant={tab === "empleado" ? "primary" : "outline"} onClick={() => setTab("empleado")}>
+            Empleado
+          </Button>
+          <Button variant={tab === "semana" ? "primary" : "outline"} onClick={() => setTab("semana")}>
+            Semana
+          </Button>
+          <Button variant={tab === "ernesto" ? "primary" : "outline"} onClick={() => setTab("ernesto")}>
+            Ernesto
+          </Button>
+          <Button variant={tab === "resumen" ? "primary" : "outline"} onClick={() => setTab("resumen")}>
+            Resumen carga
+          </Button>
+          <Button variant={tab === "lugares" ? "primary" : "outline"} onClick={() => setTab("lugares")}>
+            Lugares
+          </Button>
         </nav>
 
         {loading ? (
@@ -435,7 +715,9 @@ function App() {
                     <select value={form.lugar_predeterminado_id} onChange={(e) => elegirLugar(e.target.value)}>
                       <option value="">Cargar dirección manual</option>
                       {lugares.map((lugar) => (
-                        <option key={lugar.id} value={lugar.id}>{lugar.nombre}</option>
+                        <option key={lugar.id} value={lugar.id}>
+                          {lugar.nombre}
+                        </option>
                       ))}
                     </select>
                   </Field>
@@ -447,7 +729,9 @@ function App() {
 
                     <Field label="Sector" required>
                       <select value={form.sector} onChange={(e) => setForm({ ...form, sector: e.target.value })}>
-                        {sectores.map((x) => <option key={x}>{x}</option>)}
+                        {sectores.map((x) => (
+                          <option key={x}>{x}</option>
+                        ))}
                       </select>
                     </Field>
                   </div>
@@ -455,13 +739,17 @@ function App() {
                   <div className="grid">
                     <Field label="Tipo de tarea" required>
                       <select value={form.tipo_tarea} onChange={(e) => setForm({ ...form, tipo_tarea: e.target.value })}>
-                        {tipos.map((x) => <option key={x}>{x}</option>)}
+                        {tipos.map((x) => (
+                          <option key={x}>{x}</option>
+                        ))}
                       </select>
                     </Field>
 
                     <Field label="Prioridad" required>
                       <select value={form.prioridad} onChange={(e) => setForm({ ...form, prioridad: e.target.value })}>
-                        {prioridades.map((x) => <option key={x}>{x}</option>)}
+                        {prioridades.map((x) => (
+                          <option key={x}>{x}</option>
+                        ))}
                       </select>
                     </Field>
                   </div>
@@ -473,7 +761,9 @@ function App() {
                   <div className="grid">
                     <Field label="Horario" required>
                       <select value={form.horario_tipo} onChange={(e) => setForm({ ...form, horario_tipo: e.target.value, horario_detalle: "" })}>
-                        {horarios.map((x) => <option key={x}>{x}</option>)}
+                        {horarios.map((x) => (
+                          <option key={x}>{x}</option>
+                        ))}
                       </select>
                     </Field>
 
@@ -548,8 +838,15 @@ function App() {
                                 <input type="number" min="1" placeholder="Ej: 1" value={s.orden_ruta || ""} onChange={(e) => cambiarOrden(s.id, e.target.value)} />
                               </Field>
 
-                              <Button variant="success" onClick={() => marcar(s.id, true)}>Entregado</Button>
-                              <Button variant="danger" onClick={() => marcar(s.id, false)}>No entregado</Button>
+                              <Button variant="outline" onClick={() => empezarEdicion(s)}>
+                                Editar
+                              </Button>
+                              <Button variant="success" onClick={() => marcar(s.id, true)}>
+                                Entregado
+                              </Button>
+                              <Button variant="danger" onClick={() => marcar(s.id, false)}>
+                                No entregado
+                              </Button>
                             </SolicitudCard>
                           ))}
                         </div>
@@ -574,7 +871,9 @@ function App() {
                       <input type="date" value={fechaFiltro} onChange={(e) => setFechaFiltro(e.target.value)} />
                     </Field>
 
-                    <Button variant="outline" type="button" onClick={() => setFechaFiltro("")}>Ver todas</Button>
+                    <Button variant="outline" type="button" onClick={() => setFechaFiltro("")}>
+                      Ver todas
+                    </Button>
 
                     <a href={`https://wa.me/?text=${whatsappText}`} target="_blank" rel="noreferrer">
                       <Button>WhatsApp</Button>
@@ -600,8 +899,15 @@ function App() {
                           <input type="number" min="1" placeholder="Ej: 1" value={s.orden_ruta || ""} onChange={(e) => cambiarOrden(s.id, e.target.value)} />
                         </Field>
 
-                        <Button variant="success" onClick={() => marcar(s.id, true)}>Entregado</Button>
-                        <Button variant="danger" onClick={() => marcar(s.id, false)}>No entregado</Button>
+                        <Button variant="outline" onClick={() => empezarEdicion(s)}>
+                          Editar
+                        </Button>
+                        <Button variant="success" onClick={() => marcar(s.id, true)}>
+                          Entregado
+                        </Button>
+                        <Button variant="danger" onClick={() => marcar(s.id, false)}>
+                          No entregado
+                        </Button>
                       </SolicitudCard>
                     </div>
                   ))}
@@ -622,7 +928,9 @@ function App() {
                     <Field label="Filtrar por fecha">
                       <input type="date" value={fechaFiltro} onChange={(e) => setFechaFiltro(e.target.value)} />
                     </Field>
-                    <Button variant="outline" type="button" onClick={() => setFechaFiltro("")}>Ver todas</Button>
+                    <Button variant="outline" type="button" onClick={() => setFechaFiltro("")}>
+                      Ver todas
+                    </Button>
                   </div>
                 </div>
 
@@ -630,13 +938,17 @@ function App() {
                   <div className="card">
                     <h2>Lleva</h2>
                     {resumenCarga.lleva.length === 0 && <p className="muted">Sin carga registrada para llevar.</p>}
-                    {resumenCarga.lleva.map((item, index) => <p key={index}>{item}</p>)}
+                    {resumenCarga.lleva.map((item, index) => (
+                      <p key={index}>{item}</p>
+                    ))}
                   </div>
 
                   <div className="card">
                     <h2>Trae</h2>
                     {resumenCarga.trae.length === 0 && <p className="muted">Sin carga registrada para traer.</p>}
-                    {resumenCarga.trae.map((item, index) => <p key={index}>{item}</p>)}
+                    {resumenCarga.trae.map((item, index) => (
+                      <p key={index}>{item}</p>
+                    ))}
                   </div>
                 </div>
               </section>
@@ -677,7 +989,9 @@ function App() {
                               <Field label="Sector sugerido">
                                 <select value={item.sector_sugerido || ""} onChange={(e) => setLugarEditando({ ...item, sector_sugerido: e.target.value })}>
                                   <option value="">Sin sector sugerido</option>
-                                  {sectores.map((s) => <option key={s}>{s}</option>)}
+                                  {sectores.map((s) => (
+                                    <option key={s}>{s}</option>
+                                  ))}
                                 </select>
                               </Field>
                               <Field label="Detalle base">
@@ -697,13 +1011,21 @@ function App() {
                         <div className="actions">
                           {editando ? (
                             <>
-                              <Button variant="success" onClick={() => actualizarLugar(item)}>Guardar</Button>
-                              <Button variant="outline" onClick={() => setLugarEditando(null)}>Cancelar</Button>
+                              <Button variant="success" onClick={() => actualizarLugar(item)}>
+                                Guardar
+                              </Button>
+                              <Button variant="outline" onClick={() => setLugarEditando(null)}>
+                                Cancelar
+                              </Button>
                             </>
                           ) : (
                             <>
-                              <Button variant="outline" onClick={() => setLugarEditando(lugar)}>Editar</Button>
-                              <Button variant="danger" onClick={() => desactivarLugar(lugar.id)}>Desactivar</Button>
+                              <Button variant="outline" onClick={() => setLugarEditando(lugar)}>
+                                Editar
+                              </Button>
+                              <Button variant="danger" onClick={() => desactivarLugar(lugar.id)}>
+                                Desactivar
+                              </Button>
                             </>
                           )}
                         </div>

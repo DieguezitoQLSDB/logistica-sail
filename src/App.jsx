@@ -40,9 +40,76 @@ function formatDateLabel(dateString) {
   });
 }
 
+function onlyNumbers(value) {
+  return String(value || "").replace(/\D/g, "");
+}
+
 function getHorario(item) {
   if (item.horario_tipo === "Flexible") return "Flexible";
   return item.horario_detalle || item.horario_tipo || "";
+}
+
+function buildHorarioDetalle(item) {
+  if (item.horario_tipo === "Flexible") return "Flexible";
+
+  if (item.horario_tipo === "Antes de una hora") {
+    return item.horario_hora ? `Antes de las ${item.horario_hora}` : "";
+  }
+
+  if (item.horario_tipo === "Entre dos horarios") {
+    return item.horario_desde && item.horario_hasta
+      ? `Desde ${item.horario_desde} hasta ${item.horario_hasta}`
+      : "";
+  }
+
+  if (item.horario_tipo === "Horario exacto") {
+    return item.horario_hora ? `Para las ${item.horario_hora}` : "";
+  }
+
+  return "";
+}
+
+function parseHorarioDetalle(horarioTipo, horarioDetalle) {
+  const text = horarioDetalle || "";
+
+  if (horarioTipo === "Antes de una hora") {
+    const match = text.match(/(\d{2}:\d{2})/);
+    return { horario_hora: match ? match[1] : "", horario_desde: "", horario_hasta: "" };
+  }
+
+  if (horarioTipo === "Entre dos horarios") {
+    const match = text.match(/(\d{2}:\d{2}).*?(\d{2}:\d{2})/);
+    return {
+      horario_hora: "",
+      horario_desde: match ? match[1] : "",
+      horario_hasta: match ? match[2] : "",
+    };
+  }
+
+  if (horarioTipo === "Horario exacto") {
+    const match = text.match(/(\d{2}:\d{2})/);
+    return { horario_hora: match ? match[1] : "", horario_desde: "", horario_hasta: "" };
+  }
+
+  return { horario_hora: "", horario_desde: "", horario_hasta: "" };
+}
+
+function isHorarioCompleto(item) {
+  if (item.horario_tipo === "Flexible") return true;
+
+  if (item.horario_tipo === "Antes de una hora") {
+    return Boolean(item.horario_hora);
+  }
+
+  if (item.horario_tipo === "Entre dos horarios") {
+    return Boolean(item.horario_desde && item.horario_hasta);
+  }
+
+  if (item.horario_tipo === "Horario exacto") {
+    return Boolean(item.horario_hora);
+  }
+
+  return false;
 }
 
 function Button({ children, variant = "primary", ...props }) {
@@ -57,6 +124,72 @@ function Badge({ entregado }) {
   if (entregado === true) return <span className="badge ok">Entregado</span>;
   if (entregado === false) return <span className="badge bad">No entregado</span>;
   return <span className="badge pending">Pendiente</span>;
+}
+
+function HorarioCampos({ value, onChange }) {
+  function update(changes) {
+    onChange({ ...value, ...changes });
+  }
+
+  if (value.horario_tipo === "Flexible") return null;
+
+  if (value.horario_tipo === "Antes de una hora") {
+    return (
+      <Field label="Detalle horario" required>
+        <div className="grid">
+          <span className="muted">Antes de las</span>
+          <input
+            type="time"
+            value={value.horario_hora || ""}
+            onChange={(e) => update({ horario_hora: e.target.value })}
+          />
+        </div>
+      </Field>
+    );
+  }
+
+  if (value.horario_tipo === "Entre dos horarios") {
+    return (
+      <Field label="Detalle horario" required>
+        <div className="grid">
+          <div>
+            <span className="muted">Desde</span>
+            <input
+              type="time"
+              value={value.horario_desde || ""}
+              onChange={(e) => update({ horario_desde: e.target.value })}
+            />
+          </div>
+
+          <div>
+            <span className="muted">Hasta</span>
+            <input
+              type="time"
+              value={value.horario_hasta || ""}
+              onChange={(e) => update({ horario_hasta: e.target.value })}
+            />
+          </div>
+        </div>
+      </Field>
+    );
+  }
+
+  if (value.horario_tipo === "Horario exacto") {
+    return (
+      <Field label="Detalle horario" required>
+        <div className="grid">
+          <span className="muted">Para las</span>
+          <input
+            type="time"
+            value={value.horario_hora || ""}
+            onChange={(e) => update({ horario_hora: e.target.value })}
+          />
+        </div>
+      </Field>
+    );
+  }
+
+  return null;
 }
 
 function App() {
@@ -77,7 +210,9 @@ function App() {
     tipo_tarea: "Entrega",
     direccion: "",
     horario_tipo: "Flexible",
-    horario_detalle: "",
+    horario_hora: "",
+    horario_desde: "",
+    horario_hasta: "",
     prioridad: "Normal",
     contacto: "",
     telefono: "",
@@ -140,7 +275,7 @@ function App() {
       lugar_predeterminado_id: lugar.id,
       direccion: lugar.direccion || "",
       contacto: lugar.contacto || "",
-      telefono: lugar.telefono || "",
+      telefono: onlyNumbers(lugar.telefono || ""),
       detalle: lugar.detalle_base || form.detalle,
       sector: lugar.sector_sugerido || form.sector,
     });
@@ -163,7 +298,7 @@ function App() {
       lugar_predeterminado_id: lugar.id,
       direccion: lugar.direccion || "",
       contacto: lugar.contacto || "",
-      telefono: lugar.telefono || "",
+      telefono: onlyNumbers(lugar.telefono || ""),
       detalle: lugar.detalle_base || solicitudEditando.detalle,
       sector: lugar.sector_sugerido || solicitudEditando.sector,
     });
@@ -210,8 +345,8 @@ function App() {
       return;
     }
 
-    if (form.horario_tipo !== "Flexible" && !form.horario_detalle.trim()) {
-      alert("Completá el detalle del horario.");
+    if (!isHorarioCompleto(form)) {
+      alert("Completá correctamente el horario.");
       return;
     }
 
@@ -221,10 +356,10 @@ function App() {
       tipo_tarea: form.tipo_tarea,
       direccion: form.direccion.trim(),
       horario_tipo: form.horario_tipo,
-      horario_detalle: form.horario_tipo === "Flexible" ? "Flexible" : form.horario_detalle.trim(),
+      horario_detalle: buildHorarioDetalle(form),
       prioridad: form.prioridad,
       contacto: form.contacto.trim(),
-      telefono: form.telefono.trim(),
+      telefono: onlyNumbers(form.telefono),
       detalle: form.detalle.trim(),
       lleva: form.lleva.trim(),
       trae: form.trae.trim(),
@@ -253,7 +388,9 @@ function App() {
       ...form,
       direccion: "",
       horario_tipo: "Flexible",
-      horario_detalle: "",
+      horario_hora: "",
+      horario_desde: "",
+      horario_hasta: "",
       prioridad: "Normal",
       contacto: "",
       telefono: "",
@@ -265,12 +402,15 @@ function App() {
   }
 
   function empezarEdicion(s) {
+    const parsedHorario = parseHorarioDetalle(s.horario_tipo, s.horario_detalle);
+
     setSolicitudEditando({
       ...s,
-      horario_detalle: s.horario_detalle || "",
+      ...parsedHorario,
       detalle: s.detalle || "",
       lleva: s.lleva || "",
       trae: s.trae || "",
+      telefono: onlyNumbers(s.telefono || ""),
       lugar_predeterminado_id: s.lugar_predeterminado_id || "",
       orden_ruta: s.orden_ruta || "",
     });
@@ -296,8 +436,8 @@ function App() {
       return;
     }
 
-    if (solicitudEditando.horario_tipo !== "Flexible" && !solicitudEditando.horario_detalle.trim()) {
-      alert("Completá el detalle del horario.");
+    if (!isHorarioCompleto(solicitudEditando)) {
+      alert("Completá correctamente el horario.");
       return;
     }
 
@@ -307,11 +447,10 @@ function App() {
       tipo_tarea: solicitudEditando.tipo_tarea,
       direccion: solicitudEditando.direccion.trim(),
       horario_tipo: solicitudEditando.horario_tipo,
-      horario_detalle:
-        solicitudEditando.horario_tipo === "Flexible" ? "Flexible" : solicitudEditando.horario_detalle.trim(),
+      horario_detalle: buildHorarioDetalle(solicitudEditando),
       prioridad: solicitudEditando.prioridad,
       contacto: solicitudEditando.contacto.trim(),
-      telefono: solicitudEditando.telefono.trim(),
+      telefono: onlyNumbers(solicitudEditando.telefono),
       detalle: solicitudEditando.detalle.trim(),
       lleva: solicitudEditando.lleva.trim(),
       trae: solicitudEditando.trae.trim(),
@@ -408,7 +547,7 @@ function App() {
         nombre: lugar.nombre,
         direccion: lugar.direccion,
         contacto: lugar.contacto,
-        telefono: lugar.telefono,
+        telefono: onlyNumbers(lugar.telefono || ""),
         detalle_base: lugar.detalle_base,
         sector_sugerido: lugar.sector_sugerido,
         updated_at: new Date().toISOString(),
@@ -493,7 +632,7 @@ function App() {
   }, [solicitudesVisibles]);
 
   const whatsappText = encodeURIComponent(
-    `Ernesto, ruta sugerida de Logística Sail${fechaFiltro ? ` para ${fechaFiltro}` : ""}:\n\n${ruta
+    `Transportista, ruta sugerida de Logística Sail${fechaFiltro ? ` para ${fechaFiltro}` : ""}:\n\n${ruta
       .map(
         (s, i) =>
           `${i + 1}) ${s.fecha} - ${s.direccion}\n${s.tipo_tarea} - ${s.detalle || "Sin detalle adicional"}\nLleva: ${s.lleva || "-"}\nTrae: ${s.trae || "-"}\nContacto: ${s.contacto} ${s.telefono}\nHorario: ${getHorario(s)}`
@@ -508,7 +647,7 @@ function App() {
           <div>
             <p className="eyebrow">logisticasail.com</p>
             <h1>Logística Sail</h1>
-            <p className="subtitle">Solicitudes internas, coordinación de paradas y ruta operativa para Ernesto.</p>
+            <p className="subtitle">Solicitudes internas, coordinación de paradas y ruta operativa para transportistas.</p>
           </div>
 
           <div className="stats">
@@ -598,7 +737,13 @@ function App() {
                   <select
                     value={solicitudEditando.horario_tipo}
                     onChange={(e) =>
-                      setSolicitudEditando({ ...solicitudEditando, horario_tipo: e.target.value, horario_detalle: "" })
+                      setSolicitudEditando({
+                        ...solicitudEditando,
+                        horario_tipo: e.target.value,
+                        horario_hora: "",
+                        horario_desde: "",
+                        horario_hasta: "",
+                      })
                     }
                   >
                     {horarios.map((x) => (
@@ -607,16 +752,7 @@ function App() {
                   </select>
                 </Field>
 
-                {solicitudEditando.horario_tipo !== "Flexible" && (
-                  <Field label="Detalle horario" required>
-                    <input
-                      value={solicitudEditando.horario_detalle || ""}
-                      onChange={(e) =>
-                        setSolicitudEditando({ ...solicitudEditando, horario_detalle: e.target.value })
-                      }
-                    />
-                  </Field>
-                )}
+                <HorarioCampos value={solicitudEditando} onChange={setSolicitudEditando} />
               </div>
 
               <div className="grid">
@@ -629,8 +765,13 @@ function App() {
 
                 <Field label="Teléfono" required>
                   <input
+                    type="tel"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
                     value={solicitudEditando.telefono}
-                    onChange={(e) => setSolicitudEditando({ ...solicitudEditando, telefono: e.target.value })}
+                    onChange={(e) =>
+                      setSolicitudEditando({ ...solicitudEditando, telefono: onlyNumbers(e.target.value) })
+                    }
                   />
                 </Field>
               </div>
@@ -689,8 +830,8 @@ function App() {
           <Button variant={tab === "semana" ? "primary" : "outline"} onClick={() => setTab("semana")}>
             Semana
           </Button>
-          <Button variant={tab === "ernesto" ? "primary" : "outline"} onClick={() => setTab("ernesto")}>
-            Ernesto
+          <Button variant={tab === "transportista" ? "primary" : "outline"} onClick={() => setTab("transportista")}>
+            Transportista
           </Button>
           <Button variant={tab === "resumen" ? "primary" : "outline"} onClick={() => setTab("resumen")}>
             Resumen carga
@@ -707,7 +848,7 @@ function App() {
             {tab === "empleado" && (
               <section className="card">
                 <p className="eyebrow">Empleado</p>
-                <h2>Nueva solicitud para Ernesto</h2>
+                <h2>Nueva solicitud para transportista</h2>
                 <p className="muted">Los campos marcados con * son obligatorios.</p>
 
                 <form onSubmit={crearSolicitud} className="form">
@@ -760,18 +901,25 @@ function App() {
 
                   <div className="grid">
                     <Field label="Horario" required>
-                      <select value={form.horario_tipo} onChange={(e) => setForm({ ...form, horario_tipo: e.target.value, horario_detalle: "" })}>
+                      <select
+                        value={form.horario_tipo}
+                        onChange={(e) =>
+                          setForm({
+                            ...form,
+                            horario_tipo: e.target.value,
+                            horario_hora: "",
+                            horario_desde: "",
+                            horario_hasta: "",
+                          })
+                        }
+                      >
                         {horarios.map((x) => (
                           <option key={x}>{x}</option>
                         ))}
                       </select>
                     </Field>
 
-                    {form.horario_tipo !== "Flexible" && (
-                      <Field label="Detalle horario" required>
-                        <input placeholder="Ej: Antes de 15:00 / 10:00 a 13:00" value={form.horario_detalle} onChange={(e) => setForm({ ...form, horario_detalle: e.target.value })} />
-                      </Field>
-                    )}
+                    <HorarioCampos value={form} onChange={setForm} />
                   </div>
 
                   <div className="grid">
@@ -780,7 +928,14 @@ function App() {
                     </Field>
 
                     <Field label="Teléfono" required>
-                      <input placeholder="WhatsApp" value={form.telefono} onChange={(e) => setForm({ ...form, telefono: e.target.value })} />
+                      <input
+                        type="tel"
+                        inputMode="numeric"
+                        pattern="[0-9]*"
+                        placeholder="Solo números"
+                        value={form.telefono}
+                        onChange={(e) => setForm({ ...form, telefono: onlyNumbers(e.target.value) })}
+                      />
                     </Field>
                   </div>
 
@@ -795,7 +950,7 @@ function App() {
                   </div>
 
                   <Field label="Detalle de la tarea">
-                    <textarea placeholder="Opcional. Aclaración adicional para Ernesto." value={form.detalle} onChange={(e) => setForm({ ...form, detalle: e.target.value })} />
+                    <textarea placeholder="Opcional. Aclaración adicional para transportista." value={form.detalle} onChange={(e) => setForm({ ...form, detalle: e.target.value })} />
                   </Field>
 
                   <Button type="submit">Enviar solicitud</Button>
@@ -857,12 +1012,12 @@ function App() {
               </section>
             )}
 
-            {tab === "ernesto" && (
+            {tab === "transportista" && (
               <section className="card">
                 <div className="topline">
                   <div>
                     <p className="eyebrow">Transportista</p>
-                    <h2>Ruta de Ernesto</h2>
+                    <h2>Ruta del transportista</h2>
                     <p className="muted">Por defecto ve todas las paradas pendientes. También puede filtrar por fecha.</p>
                   </div>
 
@@ -920,7 +1075,7 @@ function App() {
                 <div className="topline">
                   <div>
                     <p className="eyebrow">Resumen de carga</p>
-                    <h2>Qué lleva y qué trae Ernesto</h2>
+                    <h2>Qué lleva y qué trae el transportista</h2>
                     <p className="muted">Basado en las paradas pendientes visibles. Podés filtrar por fecha o ver todas.</p>
                   </div>
 
@@ -983,7 +1138,13 @@ function App() {
                                   <input value={item.contacto || ""} onChange={(e) => setLugarEditando({ ...item, contacto: e.target.value })} />
                                 </Field>
                                 <Field label="Teléfono">
-                                  <input value={item.telefono || ""} onChange={(e) => setLugarEditando({ ...item, telefono: e.target.value })} />
+                                  <input
+                                    type="tel"
+                                    inputMode="numeric"
+                                    pattern="[0-9]*"
+                                    value={item.telefono || ""}
+                                    onChange={(e) => setLugarEditando({ ...item, telefono: onlyNumbers(e.target.value) })}
+                                  />
                                 </Field>
                               </div>
                               <Field label="Sector sugerido">

@@ -44,6 +44,14 @@ function onlyNumbers(value) {
   return String(value || "").replace(/\D/g, "");
 }
 
+function requiereLleva(tipoTarea) {
+  return tipoTarea === "Entrega" || tipoTarea === "Entrega y Retira";
+}
+
+function requiereTrae(tipoTarea) {
+  return tipoTarea === "Retira" || tipoTarea === "Entrega y Retira";
+}
+
 function getHorario(item) {
   if (item.horario_tipo === "Flexible") return "Flexible";
   return item.horario_detalle || item.horario_tipo || "";
@@ -96,19 +104,9 @@ function parseHorarioDetalle(horarioTipo, horarioDetalle) {
 
 function isHorarioCompleto(item) {
   if (item.horario_tipo === "Flexible") return true;
-
-  if (item.horario_tipo === "Antes de una hora") {
-    return Boolean(item.horario_hora);
-  }
-
-  if (item.horario_tipo === "Entre dos horarios") {
-    return Boolean(item.horario_desde && item.horario_hasta);
-  }
-
-  if (item.horario_tipo === "Horario exacto") {
-    return Boolean(item.horario_hora);
-  }
-
+  if (item.horario_tipo === "Antes de una hora") return Boolean(item.horario_hora);
+  if (item.horario_tipo === "Entre dos horarios") return Boolean(item.horario_desde && item.horario_hasta);
+  if (item.horario_tipo === "Horario exacto") return Boolean(item.horario_hora);
   return false;
 }
 
@@ -140,6 +138,7 @@ function HorarioCampos({ value, onChange }) {
           <span className="muted">Antes de las</span>
           <input
             type="time"
+            step="900"
             value={value.horario_hora || ""}
             onChange={(e) => update({ horario_hora: e.target.value })}
           />
@@ -156,6 +155,7 @@ function HorarioCampos({ value, onChange }) {
             <span className="muted">Desde</span>
             <input
               type="time"
+              step="900"
               value={value.horario_desde || ""}
               onChange={(e) => update({ horario_desde: e.target.value })}
             />
@@ -165,6 +165,7 @@ function HorarioCampos({ value, onChange }) {
             <span className="muted">Hasta</span>
             <input
               type="time"
+              step="900"
               value={value.horario_hasta || ""}
               onChange={(e) => update({ horario_hasta: e.target.value })}
             />
@@ -181,6 +182,7 @@ function HorarioCampos({ value, onChange }) {
           <span className="muted">Para las</span>
           <input
             type="time"
+            step="900"
             value={value.horario_hora || ""}
             onChange={(e) => update({ horario_hora: e.target.value })}
           />
@@ -327,28 +329,42 @@ function App() {
     alert("Lugar guardado como predeterminado.");
   }
 
+  function validarSolicitud(item) {
+    if (
+      !item.fecha ||
+      !item.sector ||
+      !item.tipo_tarea ||
+      !item.direccion.trim() ||
+      !item.prioridad ||
+      !item.contacto.trim() ||
+      !item.telefono.trim()
+    ) {
+      alert("Completá todos los campos obligatorios marcados con *.");
+      return false;
+    }
+
+    if (requiereLleva(item.tipo_tarea) && !item.lleva.trim()) {
+      alert("Completá el campo Qué lleva.");
+      return false;
+    }
+
+    if (requiereTrae(item.tipo_tarea) && !item.trae.trim()) {
+      alert("Completá el campo Qué trae.");
+      return false;
+    }
+
+    if (!isHorarioCompleto(item)) {
+      alert("Completá correctamente el horario.");
+      return false;
+    }
+
+    return true;
+  }
+
   async function crearSolicitud(e) {
     e.preventDefault();
 
-    if (
-      !form.fecha ||
-      !form.sector ||
-      !form.tipo_tarea ||
-      !form.direccion.trim() ||
-      !form.prioridad ||
-      !form.contacto.trim() ||
-      !form.telefono.trim() ||
-      !form.lleva.trim() ||
-      !form.trae.trim()
-    ) {
-      alert("Completá todos los campos obligatorios marcados con *.");
-      return;
-    }
-
-    if (!isHorarioCompleto(form)) {
-      alert("Completá correctamente el horario.");
-      return;
-    }
+    if (!validarSolicitud(form)) return;
 
     const payload = {
       fecha: form.fecha,
@@ -421,25 +437,7 @@ function App() {
   async function guardarCambiosSolicitud(e) {
     e.preventDefault();
 
-    if (
-      !solicitudEditando.fecha ||
-      !solicitudEditando.sector ||
-      !solicitudEditando.tipo_tarea ||
-      !solicitudEditando.direccion.trim() ||
-      !solicitudEditando.prioridad ||
-      !solicitudEditando.contacto.trim() ||
-      !solicitudEditando.telefono.trim() ||
-      !solicitudEditando.lleva.trim() ||
-      !solicitudEditando.trae.trim()
-    ) {
-      alert("Completá todos los campos obligatorios marcados con *.");
-      return;
-    }
-
-    if (!isHorarioCompleto(solicitudEditando)) {
-      alert("Completá correctamente el horario.");
-      return;
-    }
+    if (!validarSolicitud(solicitudEditando)) return;
 
     const payload = {
       fecha: solicitudEditando.fecha,
@@ -689,7 +687,7 @@ function App() {
                   />
                 </Field>
 
-                <Field label="Sector" required>
+                <Field label="Sector solicitante" required>
                   <select
                     value={solicitudEditando.sector}
                     onChange={(e) => setSolicitudEditando({ ...solicitudEditando, sector: e.target.value })}
@@ -763,7 +761,7 @@ function App() {
                   />
                 </Field>
 
-                <Field label="Teléfono" required>
+                <Field label="Teléfono de contacto" required>
                   <input
                     type="tel"
                     inputMode="numeric"
@@ -777,14 +775,14 @@ function App() {
               </div>
 
               <div className="grid">
-                <Field label="Qué lleva" required>
+                <Field label="Qué lleva" required={requiereLleva(solicitudEditando.tipo_tarea)}>
                   <textarea
                     value={solicitudEditando.lleva || ""}
                     onChange={(e) => setSolicitudEditando({ ...solicitudEditando, lleva: e.target.value })}
                   />
                 </Field>
 
-                <Field label="Qué trae" required>
+                <Field label="Qué trae" required={requiereTrae(solicitudEditando.tipo_tarea)}>
                   <textarea
                     value={solicitudEditando.trae || ""}
                     onChange={(e) => setSolicitudEditando({ ...solicitudEditando, trae: e.target.value })}
@@ -868,7 +866,7 @@ function App() {
                       <input type="date" value={form.fecha} onChange={(e) => setForm({ ...form, fecha: e.target.value })} />
                     </Field>
 
-                    <Field label="Sector" required>
+                    <Field label="Sector solicitante" required>
                       <select value={form.sector} onChange={(e) => setForm({ ...form, sector: e.target.value })}>
                         {sectores.map((x) => (
                           <option key={x}>{x}</option>
@@ -927,7 +925,7 @@ function App() {
                       <input placeholder="Nombre" value={form.contacto} onChange={(e) => setForm({ ...form, contacto: e.target.value })} />
                     </Field>
 
-                    <Field label="Teléfono" required>
+                    <Field label="Teléfono de contacto" required>
                       <input
                         type="tel"
                         inputMode="numeric"
@@ -940,12 +938,28 @@ function App() {
                   </div>
 
                   <div className="grid">
-                    <Field label="Qué lleva" required>
-                      <textarea placeholder="Si no lleva nada, escribir: Nada." value={form.lleva} onChange={(e) => setForm({ ...form, lleva: e.target.value })} />
+                    <Field label="Qué lleva" required={requiereLleva(form.tipo_tarea)}>
+                      <textarea
+                        placeholder={
+                          requiereLleva(form.tipo_tarea)
+                            ? "Campo obligatorio. Ej: prendas, cajas, remito."
+                            : "Opcional. Para este tipo de tarea no es obligatorio."
+                        }
+                        value={form.lleva}
+                        onChange={(e) => setForm({ ...form, lleva: e.target.value })}
+                      />
                     </Field>
 
-                    <Field label="Qué trae" required>
-                      <textarea placeholder="Si no trae nada, escribir: Nada." value={form.trae} onChange={(e) => setForm({ ...form, trae: e.target.value })} />
+                    <Field label="Qué trae" required={requiereTrae(form.tipo_tarea)}>
+                      <textarea
+                        placeholder={
+                          requiereTrae(form.tipo_tarea)
+                            ? "Campo obligatorio. Ej: producción, cambios, documentación."
+                            : "Opcional. Para este tipo de tarea no es obligatorio."
+                        }
+                        value={form.trae}
+                        onChange={(e) => setForm({ ...form, trae: e.target.value })}
+                      />
                     </Field>
                   </div>
 
@@ -1137,7 +1151,7 @@ function App() {
                                 <Field label="Contacto">
                                   <input value={item.contacto || ""} onChange={(e) => setLugarEditando({ ...item, contacto: e.target.value })} />
                                 </Field>
-                                <Field label="Teléfono">
+                                <Field label="Teléfono de contacto">
                                   <input
                                     type="tel"
                                     inputMode="numeric"
@@ -1147,7 +1161,7 @@ function App() {
                                   />
                                 </Field>
                               </div>
-                              <Field label="Sector sugerido">
+                              <Field label="Sector solicitante sugerido">
                                 <select value={item.sector_sugerido || ""} onChange={(e) => setLugarEditando({ ...item, sector_sugerido: e.target.value })}>
                                   <option value="">Sin sector sugerido</option>
                                   {sectores.map((s) => (
@@ -1164,7 +1178,7 @@ function App() {
                               <strong>{lugar.nombre}</strong>
                               <p>{lugar.direccion}</p>
                               <p className="small">Contacto: {lugar.contacto || "-"} · {lugar.telefono || "-"}</p>
-                              <p className="small">Sector sugerido: {lugar.sector_sugerido || "-"}</p>
+                              <p className="small">Sector solicitante sugerido: {lugar.sector_sugerido || "-"}</p>
                             </>
                           )}
                         </div>

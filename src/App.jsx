@@ -5,13 +5,25 @@ import "./style.css";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
-
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 const sectores = ["Ventas", "Producto", "Producción", "LOT", "Marketing", "Administración", "E-Commerce"];
 const tipos = ["Entrega", "Retira", "Entrega y Retira"];
 const prioridades = ["Normal", "Urgente"];
 const horarios = ["Flexible", "Antes de una hora", "Entre dos horarios", "Horario exacto"];
+
+function generarOpcionesHorario() {
+  const opciones = [];
+  for (let hora = 8; hora <= 18; hora++) {
+    for (const minuto of [0, 15, 30, 45]) {
+      if (hora === 18 && minuto > 0) continue;
+      opciones.push(`${String(hora).padStart(2, "0")}:${String(minuto).padStart(2, "0")}`);
+    }
+  }
+  return opciones;
+}
+
+const opcionesHorario = generarOpcionesHorario();
 
 function getToday() {
   return new Date().toISOString().slice(0, 10);
@@ -124,6 +136,19 @@ function Badge({ entregado }) {
   return <span className="badge pending">Pendiente</span>;
 }
 
+function HorarioSelect({ value, onChange }) {
+  return (
+    <select value={value || ""} onChange={(e) => onChange(e.target.value)}>
+      <option value="">Seleccionar horario</option>
+      {opcionesHorario.map((hora) => (
+        <option key={hora} value={hora}>
+          {hora}
+        </option>
+      ))}
+    </select>
+  );
+}
+
 function HorarioCampos({ value, onChange }) {
   function update(changes) {
     onChange({ ...value, ...changes });
@@ -136,12 +161,7 @@ function HorarioCampos({ value, onChange }) {
       <Field label="Detalle horario" required>
         <div className="grid">
           <span className="muted">Antes de las</span>
-          <input
-            type="time"
-            step="900"
-            value={value.horario_hora || ""}
-            onChange={(e) => update({ horario_hora: e.target.value })}
-          />
+          <HorarioSelect value={value.horario_hora} onChange={(hora) => update({ horario_hora: hora })} />
         </div>
       </Field>
     );
@@ -153,22 +173,12 @@ function HorarioCampos({ value, onChange }) {
         <div className="grid">
           <div>
             <span className="muted">Desde</span>
-            <input
-              type="time"
-              step="900"
-              value={value.horario_desde || ""}
-              onChange={(e) => update({ horario_desde: e.target.value })}
-            />
+            <HorarioSelect value={value.horario_desde} onChange={(hora) => update({ horario_desde: hora })} />
           </div>
 
           <div>
             <span className="muted">Hasta</span>
-            <input
-              type="time"
-              step="900"
-              value={value.horario_hasta || ""}
-              onChange={(e) => update({ horario_hasta: e.target.value })}
-            />
+            <HorarioSelect value={value.horario_hasta} onChange={(hora) => update({ horario_hasta: hora })} />
           </div>
         </div>
       </Field>
@@ -180,12 +190,7 @@ function HorarioCampos({ value, onChange }) {
       <Field label="Detalle horario" required>
         <div className="grid">
           <span className="muted">Para las</span>
-          <input
-            type="time"
-            step="900"
-            value={value.horario_hora || ""}
-            onChange={(e) => update({ horario_hora: e.target.value })}
-          />
+          <HorarioSelect value={value.horario_hora} onChange={(hora) => update({ horario_hora: hora })} />
         </div>
       </Field>
     );
@@ -199,10 +204,8 @@ function App() {
   const [solicitudes, setSolicitudes] = useState([]);
   const [lugares, setLugares] = useState([]);
   const [loading, setLoading] = useState(true);
-
   const [fechaFiltro, setFechaFiltro] = useState("");
   const [semanaInicio, setSemanaInicio] = useState(getMonday());
-
   const [solicitudEditando, setSolicitudEditando] = useState(null);
   const [lugarEditando, setLugarEditando] = useState(null);
 
@@ -232,11 +235,8 @@ function App() {
       .order("orden_ruta", { ascending: true, nullsFirst: false })
       .order("created_at", { ascending: false });
 
-    if (error) {
-      alert("Error cargando solicitudes: " + error.message);
-    } else {
-      setSolicitudes(data || []);
-    }
+    if (error) alert("Error cargando solicitudes: " + error.message);
+    else setSolicitudes(data || []);
   }
 
   async function cargarLugares() {
@@ -246,11 +246,8 @@ function App() {
       .eq("activo", true)
       .order("nombre", { ascending: true });
 
-    if (error) {
-      alert("Error cargando lugares predeterminados: " + error.message);
-    } else {
-      setLugares(data || []);
-    }
+    if (error) alert("Error cargando lugares predeterminados: " + error.message);
+    else setLugares(data || []);
   }
 
   async function cargarTodo() {
@@ -285,10 +282,7 @@ function App() {
 
   function elegirLugarEdicion(id) {
     if (!id) {
-      setSolicitudEditando({
-        ...solicitudEditando,
-        lugar_predeterminado_id: "",
-      });
+      setSolicitudEditando({ ...solicitudEditando, lugar_predeterminado_id: "" });
       return;
     }
 
@@ -363,7 +357,6 @@ function App() {
 
   async function crearSolicitud(e) {
     e.preventDefault();
-
     if (!validarSolicitud(form)) return;
 
     const payload = {
@@ -436,7 +429,6 @@ function App() {
 
   async function guardarCambiosSolicitud(e) {
     e.preventDefault();
-
     if (!validarSolicitud(solicitudEditando)) return;
 
     const payload = {
@@ -488,35 +480,21 @@ function App() {
   async function marcar(id, value) {
     const { error } = await supabase
       .from("solicitudes")
-      .update({
-        entregado: value,
-        updated_at: new Date().toISOString(),
-      })
+      .update({ entregado: value, updated_at: new Date().toISOString() })
       .eq("id", id);
 
-    if (error) {
-      alert("Error actualizando solicitud: " + error.message);
-      return;
-    }
-
-    await cargarSolicitudes();
+    if (error) alert("Error actualizando solicitud: " + error.message);
+    else await cargarSolicitudes();
   }
 
   async function cambiarFecha(id, nuevaFecha) {
     const { error } = await supabase
       .from("solicitudes")
-      .update({
-        fecha: nuevaFecha,
-        updated_at: new Date().toISOString(),
-      })
+      .update({ fecha: nuevaFecha, updated_at: new Date().toISOString() })
       .eq("id", id);
 
-    if (error) {
-      alert("Error cambiando fecha: " + error.message);
-      return;
-    }
-
-    await cargarSolicitudes();
+    if (error) alert("Error cambiando fecha: " + error.message);
+    else await cargarSolicitudes();
   }
 
   async function cambiarOrden(id, nuevoOrden) {
@@ -524,18 +502,11 @@ function App() {
 
     const { error } = await supabase
       .from("solicitudes")
-      .update({
-        orden_ruta: orden,
-        updated_at: new Date().toISOString(),
-      })
+      .update({ orden_ruta: orden, updated_at: new Date().toISOString() })
       .eq("id", id);
 
-    if (error) {
-      alert("Error cambiando orden: " + error.message);
-      return;
-    }
-
-    await cargarSolicitudes();
+    if (error) alert("Error cambiando orden: " + error.message);
+    else await cargarSolicitudes();
   }
 
   async function actualizarLugar(lugar) {
@@ -571,12 +542,8 @@ function App() {
       .update({ activo: false, updated_at: new Date().toISOString() })
       .eq("id", id);
 
-    if (error) {
-      alert("Error desactivando lugar: " + error.message);
-      return;
-    }
-
-    await cargarLugares();
+    if (error) alert("Error desactivando lugar: " + error.message);
+    else await cargarLugares();
   }
 
   const solicitudesVisibles = useMemo(() => {
@@ -619,15 +586,13 @@ function App() {
     };
   }, [ruta]);
 
-  const stats = useMemo(() => {
-    return {
-      total: solicitudesVisibles.length,
-      pendientes: solicitudesVisibles.filter((s) => s.entregado === null).length,
-      entregadas: solicitudesVisibles.filter((s) => s.entregado === true).length,
-      noEntregadas: solicitudesVisibles.filter((s) => s.entregado === false).length,
-      urgentes: solicitudesVisibles.filter((s) => s.prioridad === "Urgente" && s.entregado !== true).length,
-    };
-  }, [solicitudesVisibles]);
+  const stats = useMemo(() => ({
+    total: solicitudesVisibles.length,
+    pendientes: solicitudesVisibles.filter((s) => s.entregado === null).length,
+    entregadas: solicitudesVisibles.filter((s) => s.entregado === true).length,
+    noEntregadas: solicitudesVisibles.filter((s) => s.entregado === false).length,
+    urgentes: solicitudesVisibles.filter((s) => s.prioridad === "Urgente" && s.entregado !== true).length,
+  }), [solicitudesVisibles]);
 
   const whatsappText = encodeURIComponent(
     `Transportista, ruta sugerida de Logística Sail${fechaFiltro ? ` para ${fechaFiltro}` : ""}:\n\n${ruta
@@ -658,185 +623,22 @@ function App() {
         </header>
 
         {solicitudEditando && (
-          <section className="card">
-            <p className="eyebrow">Editar solicitud</p>
-            <h2>Modificar o eliminar solicitud</h2>
-            <p className="muted">Editá los datos necesarios. Los campos marcados con * son obligatorios.</p>
-
-            <form onSubmit={guardarCambiosSolicitud} className="form">
-              <Field label="Lugar predeterminado">
-                <select
-                  value={solicitudEditando.lugar_predeterminado_id || ""}
-                  onChange={(e) => elegirLugarEdicion(e.target.value)}
-                >
-                  <option value="">Sin lugar predeterminado</option>
-                  {lugares.map((lugar) => (
-                    <option key={lugar.id} value={lugar.id}>
-                      {lugar.nombre}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-
-              <div className="grid">
-                <Field label="Fecha" required>
-                  <input
-                    type="date"
-                    value={solicitudEditando.fecha}
-                    onChange={(e) => setSolicitudEditando({ ...solicitudEditando, fecha: e.target.value })}
-                  />
-                </Field>
-
-                <Field label="Sector solicitante" required>
-                  <select
-                    value={solicitudEditando.sector}
-                    onChange={(e) => setSolicitudEditando({ ...solicitudEditando, sector: e.target.value })}
-                  >
-                    {sectores.map((x) => (
-                      <option key={x}>{x}</option>
-                    ))}
-                  </select>
-                </Field>
-              </div>
-
-              <div className="grid">
-                <Field label="Tipo de tarea" required>
-                  <select
-                    value={solicitudEditando.tipo_tarea}
-                    onChange={(e) => setSolicitudEditando({ ...solicitudEditando, tipo_tarea: e.target.value })}
-                  >
-                    {tipos.map((x) => (
-                      <option key={x}>{x}</option>
-                    ))}
-                  </select>
-                </Field>
-
-                <Field label="Prioridad" required>
-                  <select
-                    value={solicitudEditando.prioridad}
-                    onChange={(e) => setSolicitudEditando({ ...solicitudEditando, prioridad: e.target.value })}
-                  >
-                    {prioridades.map((x) => (
-                      <option key={x}>{x}</option>
-                    ))}
-                  </select>
-                </Field>
-              </div>
-
-              <Field label="Dirección completa" required>
-                <input
-                  value={solicitudEditando.direccion}
-                  onChange={(e) => setSolicitudEditando({ ...solicitudEditando, direccion: e.target.value })}
-                />
-              </Field>
-
-              <div className="grid">
-                <Field label="Horario" required>
-                  <select
-                    value={solicitudEditando.horario_tipo}
-                    onChange={(e) =>
-                      setSolicitudEditando({
-                        ...solicitudEditando,
-                        horario_tipo: e.target.value,
-                        horario_hora: "",
-                        horario_desde: "",
-                        horario_hasta: "",
-                      })
-                    }
-                  >
-                    {horarios.map((x) => (
-                      <option key={x}>{x}</option>
-                    ))}
-                  </select>
-                </Field>
-
-                <HorarioCampos value={solicitudEditando} onChange={setSolicitudEditando} />
-              </div>
-
-              <div className="grid">
-                <Field label="Contacto en destino" required>
-                  <input
-                    value={solicitudEditando.contacto}
-                    onChange={(e) => setSolicitudEditando({ ...solicitudEditando, contacto: e.target.value })}
-                  />
-                </Field>
-
-                <Field label="Teléfono de contacto" required>
-                  <input
-                    type="tel"
-                    inputMode="numeric"
-                    pattern="[0-9]*"
-                    value={solicitudEditando.telefono}
-                    onChange={(e) =>
-                      setSolicitudEditando({ ...solicitudEditando, telefono: onlyNumbers(e.target.value) })
-                    }
-                  />
-                </Field>
-              </div>
-
-              <div className="grid">
-                <Field label="Qué lleva" required={requiereLleva(solicitudEditando.tipo_tarea)}>
-                  <textarea
-                    value={solicitudEditando.lleva || ""}
-                    onChange={(e) => setSolicitudEditando({ ...solicitudEditando, lleva: e.target.value })}
-                  />
-                </Field>
-
-                <Field label="Qué trae" required={requiereTrae(solicitudEditando.tipo_tarea)}>
-                  <textarea
-                    value={solicitudEditando.trae || ""}
-                    onChange={(e) => setSolicitudEditando({ ...solicitudEditando, trae: e.target.value })}
-                  />
-                </Field>
-              </div>
-
-              <Field label="Detalle de la tarea">
-                <textarea
-                  value={solicitudEditando.detalle || ""}
-                  onChange={(e) => setSolicitudEditando({ ...solicitudEditando, detalle: e.target.value })}
-                />
-              </Field>
-
-              <Field label="Orden de ruta">
-                <input
-                  type="number"
-                  min="1"
-                  value={solicitudEditando.orden_ruta || ""}
-                  onChange={(e) => setSolicitudEditando({ ...solicitudEditando, orden_ruta: e.target.value })}
-                />
-              </Field>
-
-              <div className="actions">
-                <Button type="submit" variant="success">
-                  Guardar cambios
-                </Button>
-                <Button type="button" variant="outline" onClick={() => setSolicitudEditando(null)}>
-                  Cancelar
-                </Button>
-                <Button type="button" variant="danger" onClick={() => eliminarSolicitud(solicitudEditando.id)}>
-                  Eliminar solicitud
-                </Button>
-              </div>
-            </form>
-          </section>
+          <EditorSolicitud
+            solicitudEditando={solicitudEditando}
+            setSolicitudEditando={setSolicitudEditando}
+            lugares={lugares}
+            elegirLugarEdicion={elegirLugarEdicion}
+            guardarCambiosSolicitud={guardarCambiosSolicitud}
+            eliminarSolicitud={eliminarSolicitud}
+          />
         )}
 
         <nav className="tabs">
-          <Button variant={tab === "empleado" ? "primary" : "outline"} onClick={() => setTab("empleado")}>
-            Empleado
-          </Button>
-          <Button variant={tab === "semana" ? "primary" : "outline"} onClick={() => setTab("semana")}>
-            Semana
-          </Button>
-          <Button variant={tab === "transportista" ? "primary" : "outline"} onClick={() => setTab("transportista")}>
-            Transportista
-          </Button>
-          <Button variant={tab === "resumen" ? "primary" : "outline"} onClick={() => setTab("resumen")}>
-            Resumen carga
-          </Button>
-          <Button variant={tab === "lugares" ? "primary" : "outline"} onClick={() => setTab("lugares")}>
-            Lugares
-          </Button>
+          <Button variant={tab === "empleado" ? "primary" : "outline"} onClick={() => setTab("empleado")}>Empleado</Button>
+          <Button variant={tab === "semana" ? "primary" : "outline"} onClick={() => setTab("semana")}>Semana</Button>
+          <Button variant={tab === "transportista" ? "primary" : "outline"} onClick={() => setTab("transportista")}>Transportista</Button>
+          <Button variant={tab === "resumen" ? "primary" : "outline"} onClick={() => setTab("resumen")}>Resumen carga</Button>
+          <Button variant={tab === "lugares" ? "primary" : "outline"} onClick={() => setTab("lugares")}>Lugares</Button>
         </nav>
 
         {loading ? (
@@ -844,376 +646,491 @@ function App() {
         ) : (
           <>
             {tab === "empleado" && (
-              <section className="card">
-                <p className="eyebrow">Empleado</p>
-                <h2>Nueva solicitud para transportista</h2>
-                <p className="muted">Los campos marcados con * son obligatorios.</p>
-
-                <form onSubmit={crearSolicitud} className="form">
-                  <Field label="Lugar predeterminado">
-                    <select value={form.lugar_predeterminado_id} onChange={(e) => elegirLugar(e.target.value)}>
-                      <option value="">Cargar dirección manual</option>
-                      {lugares.map((lugar) => (
-                        <option key={lugar.id} value={lugar.id}>
-                          {lugar.nombre}
-                        </option>
-                      ))}
-                    </select>
-                  </Field>
-
-                  <div className="grid">
-                    <Field label="Fecha" required>
-                      <input type="date" value={form.fecha} onChange={(e) => setForm({ ...form, fecha: e.target.value })} />
-                    </Field>
-
-                    <Field label="Sector solicitante" required>
-                      <select value={form.sector} onChange={(e) => setForm({ ...form, sector: e.target.value })}>
-                        {sectores.map((x) => (
-                          <option key={x}>{x}</option>
-                        ))}
-                      </select>
-                    </Field>
-                  </div>
-
-                  <div className="grid">
-                    <Field label="Tipo de tarea" required>
-                      <select value={form.tipo_tarea} onChange={(e) => setForm({ ...form, tipo_tarea: e.target.value })}>
-                        {tipos.map((x) => (
-                          <option key={x}>{x}</option>
-                        ))}
-                      </select>
-                    </Field>
-
-                    <Field label="Prioridad" required>
-                      <select value={form.prioridad} onChange={(e) => setForm({ ...form, prioridad: e.target.value })}>
-                        {prioridades.map((x) => (
-                          <option key={x}>{x}</option>
-                        ))}
-                      </select>
-                    </Field>
-                  </div>
-
-                  <Field label="Dirección completa" required>
-                    <input placeholder="Ej: Arcos 2140, Belgrano" value={form.direccion} onChange={(e) => setForm({ ...form, direccion: e.target.value })} />
-                  </Field>
-
-                  <div className="grid">
-                    <Field label="Horario" required>
-                      <select
-                        value={form.horario_tipo}
-                        onChange={(e) =>
-                          setForm({
-                            ...form,
-                            horario_tipo: e.target.value,
-                            horario_hora: "",
-                            horario_desde: "",
-                            horario_hasta: "",
-                          })
-                        }
-                      >
-                        {horarios.map((x) => (
-                          <option key={x}>{x}</option>
-                        ))}
-                      </select>
-                    </Field>
-
-                    <HorarioCampos value={form} onChange={setForm} />
-                  </div>
-
-                  <div className="grid">
-                    <Field label="Contacto en destino" required>
-                      <input placeholder="Nombre" value={form.contacto} onChange={(e) => setForm({ ...form, contacto: e.target.value })} />
-                    </Field>
-
-                    <Field label="Teléfono de contacto" required>
-                      <input
-                        type="tel"
-                        inputMode="numeric"
-                        pattern="[0-9]*"
-                        placeholder="Solo números"
-                        value={form.telefono}
-                        onChange={(e) => setForm({ ...form, telefono: onlyNumbers(e.target.value) })}
-                      />
-                    </Field>
-                  </div>
-
-                  <div className="grid">
-                    <Field label="Qué lleva" required={requiereLleva(form.tipo_tarea)}>
-                      <textarea
-                        placeholder={
-                          requiereLleva(form.tipo_tarea)
-                            ? "Campo obligatorio. Ej: prendas, cajas, remito."
-                            : "Opcional. Para este tipo de tarea no es obligatorio."
-                        }
-                        value={form.lleva}
-                        onChange={(e) => setForm({ ...form, lleva: e.target.value })}
-                      />
-                    </Field>
-
-                    <Field label="Qué trae" required={requiereTrae(form.tipo_tarea)}>
-                      <textarea
-                        placeholder={
-                          requiereTrae(form.tipo_tarea)
-                            ? "Campo obligatorio. Ej: producción, cambios, documentación."
-                            : "Opcional. Para este tipo de tarea no es obligatorio."
-                        }
-                        value={form.trae}
-                        onChange={(e) => setForm({ ...form, trae: e.target.value })}
-                      />
-                    </Field>
-                  </div>
-
-                  <Field label="Detalle de la tarea">
-                    <textarea placeholder="Opcional. Aclaración adicional para transportista." value={form.detalle} onChange={(e) => setForm({ ...form, detalle: e.target.value })} />
-                  </Field>
-
-                  <Button type="submit">Enviar solicitud</Button>
-                </form>
-              </section>
+              <EmpleadoForm
+                form={form}
+                setForm={setForm}
+                lugares={lugares}
+                elegirLugar={elegirLugar}
+                crearSolicitud={crearSolicitud}
+              />
             )}
 
             {tab === "semana" && (
-              <section className="card">
-                <div className="topline">
-                  <div>
-                    <p className="eyebrow">Vista semanal</p>
-                    <h2>Semana del {semanaInicio}</h2>
-                    <p className="muted">Podés mover solicitudes de día si conviene resolverlas antes.</p>
-                  </div>
-
-                  <Field label="Inicio de semana">
-                    <input type="date" value={semanaInicio} onChange={(e) => setSemanaInicio(getMonday(e.target.value))} />
-                  </Field>
-                </div>
-
-                <div className="list">
-                  {diasSemana.map((dia) => {
-                    const items = solicitudesSemana.filter((s) => s.fecha === dia);
-
-                    return (
-                      <div key={dia} className="card">
-                        <h2>{formatDateLabel(dia)}</h2>
-
-                        {items.length === 0 && <p className="muted">Sin solicitudes.</p>}
-
-                        <div className="list">
-                          {items.map((s) => (
-                            <SolicitudCard key={s.id} s={s}>
-                              <Field label="Mover a fecha">
-                                <input type="date" value={s.fecha} onChange={(e) => cambiarFecha(s.id, e.target.value)} />
-                              </Field>
-
-                              <Field label="Orden">
-                                <input type="number" min="1" placeholder="Ej: 1" value={s.orden_ruta || ""} onChange={(e) => cambiarOrden(s.id, e.target.value)} />
-                              </Field>
-
-                              <Button variant="outline" onClick={() => empezarEdicion(s)}>
-                                Editar
-                              </Button>
-                              <Button variant="success" onClick={() => marcar(s.id, true)}>
-                                Entregado
-                              </Button>
-                              <Button variant="danger" onClick={() => marcar(s.id, false)}>
-                                No entregado
-                              </Button>
-                            </SolicitudCard>
-                          ))}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </section>
+              <SemanaView
+                semanaInicio={semanaInicio}
+                setSemanaInicio={setSemanaInicio}
+                diasSemana={diasSemana}
+                solicitudesSemana={solicitudesSemana}
+                cambiarFecha={cambiarFecha}
+                cambiarOrden={cambiarOrden}
+                empezarEdicion={empezarEdicion}
+                marcar={marcar}
+              />
             )}
 
             {tab === "transportista" && (
-              <section className="card">
-                <div className="topline">
-                  <div>
-                    <p className="eyebrow">Transportista</p>
-                    <h2>Ruta del transportista</h2>
-                    <p className="muted">Por defecto ve todas las paradas pendientes. También puede filtrar por fecha.</p>
-                  </div>
-
-                  <div className="actions">
-                    <Field label="Filtrar por fecha">
-                      <input type="date" value={fechaFiltro} onChange={(e) => setFechaFiltro(e.target.value)} />
-                    </Field>
-
-                    <Button variant="outline" type="button" onClick={() => setFechaFiltro("")}>
-                      Ver todas
-                    </Button>
-
-                    <a href={`https://wa.me/?text=${whatsappText}`} target="_blank" rel="noreferrer">
-                      <Button>WhatsApp</Button>
-                    </a>
-                  </div>
-                </div>
-
-                <p className="notice">Se ordena por fecha, orden manual, urgencia y dirección. Después conectamos optimización real.</p>
-
-                <div className="list">
-                  {ruta.length === 0 && <p className="muted">No quedan paradas pendientes para mostrar.</p>}
-
-                  {ruta.map((s, i) => (
-                    <div key={s.id} className="route-item">
-                      <div className="route-number">{i + 1}</div>
-
-                      <SolicitudCard s={s}>
-                        <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(s.direccion)}`} target="_blank" rel="noreferrer">
-                          <Button variant="outline">Abrir Maps</Button>
-                        </a>
-
-                        <Field label="Orden">
-                          <input type="number" min="1" placeholder="Ej: 1" value={s.orden_ruta || ""} onChange={(e) => cambiarOrden(s.id, e.target.value)} />
-                        </Field>
-
-                        <Button variant="outline" onClick={() => empezarEdicion(s)}>
-                          Editar
-                        </Button>
-                        <Button variant="success" onClick={() => marcar(s.id, true)}>
-                          Entregado
-                        </Button>
-                        <Button variant="danger" onClick={() => marcar(s.id, false)}>
-                          No entregado
-                        </Button>
-                      </SolicitudCard>
-                    </div>
-                  ))}
-                </div>
-              </section>
+              <TransportistaView
+                fechaFiltro={fechaFiltro}
+                setFechaFiltro={setFechaFiltro}
+                ruta={ruta}
+                whatsappText={whatsappText}
+                cambiarOrden={cambiarOrden}
+                empezarEdicion={empezarEdicion}
+                marcar={marcar}
+              />
             )}
 
             {tab === "resumen" && (
-              <section className="card">
-                <div className="topline">
-                  <div>
-                    <p className="eyebrow">Resumen de carga</p>
-                    <h2>Qué lleva y qué trae el transportista</h2>
-                    <p className="muted">Basado en las paradas pendientes visibles. Podés filtrar por fecha o ver todas.</p>
-                  </div>
-
-                  <div className="actions">
-                    <Field label="Filtrar por fecha">
-                      <input type="date" value={fechaFiltro} onChange={(e) => setFechaFiltro(e.target.value)} />
-                    </Field>
-                    <Button variant="outline" type="button" onClick={() => setFechaFiltro("")}>
-                      Ver todas
-                    </Button>
-                  </div>
-                </div>
-
-                <div className="grid">
-                  <div className="card">
-                    <h2>Lleva</h2>
-                    {resumenCarga.lleva.length === 0 && <p className="muted">Sin carga registrada para llevar.</p>}
-                    {resumenCarga.lleva.map((item, index) => (
-                      <p key={index}>{item}</p>
-                    ))}
-                  </div>
-
-                  <div className="card">
-                    <h2>Trae</h2>
-                    {resumenCarga.trae.length === 0 && <p className="muted">Sin carga registrada para traer.</p>}
-                    {resumenCarga.trae.map((item, index) => (
-                      <p key={index}>{item}</p>
-                    ))}
-                  </div>
-                </div>
-              </section>
+              <ResumenCarga fechaFiltro={fechaFiltro} setFechaFiltro={setFechaFiltro} resumenCarga={resumenCarga} />
             )}
 
             {tab === "lugares" && (
-              <section className="card">
-                <p className="eyebrow">Lugares predeterminados</p>
-                <h2>Administrar lugares guardados</h2>
-                <p className="muted">Editá datos mal cargados o desactivá lugares que ya no se usan.</p>
-
-                <div className="list">
-                  {lugares.length === 0 && <p className="muted">Todavía no hay lugares guardados.</p>}
-
-                  {lugares.map((lugar) => {
-                    const editando = lugarEditando?.id === lugar.id;
-                    const item = editando ? lugarEditando : lugar;
-
-                    return (
-                      <div key={lugar.id} className="request">
-                        <div style={{ flex: 1 }}>
-                          {editando ? (
-                            <div className="form">
-                              <Field label="Nombre">
-                                <input value={item.nombre || ""} onChange={(e) => setLugarEditando({ ...item, nombre: e.target.value })} />
-                              </Field>
-                              <Field label="Dirección">
-                                <input value={item.direccion || ""} onChange={(e) => setLugarEditando({ ...item, direccion: e.target.value })} />
-                              </Field>
-                              <div className="grid">
-                                <Field label="Contacto">
-                                  <input value={item.contacto || ""} onChange={(e) => setLugarEditando({ ...item, contacto: e.target.value })} />
-                                </Field>
-                                <Field label="Teléfono de contacto">
-                                  <input
-                                    type="tel"
-                                    inputMode="numeric"
-                                    pattern="[0-9]*"
-                                    value={item.telefono || ""}
-                                    onChange={(e) => setLugarEditando({ ...item, telefono: onlyNumbers(e.target.value) })}
-                                  />
-                                </Field>
-                              </div>
-                              <Field label="Sector solicitante sugerido">
-                                <select value={item.sector_sugerido || ""} onChange={(e) => setLugarEditando({ ...item, sector_sugerido: e.target.value })}>
-                                  <option value="">Sin sector sugerido</option>
-                                  {sectores.map((s) => (
-                                    <option key={s}>{s}</option>
-                                  ))}
-                                </select>
-                              </Field>
-                              <Field label="Detalle base">
-                                <textarea value={item.detalle_base || ""} onChange={(e) => setLugarEditando({ ...item, detalle_base: e.target.value })} />
-                              </Field>
-                            </div>
-                          ) : (
-                            <>
-                              <strong>{lugar.nombre}</strong>
-                              <p>{lugar.direccion}</p>
-                              <p className="small">Contacto: {lugar.contacto || "-"} · {lugar.telefono || "-"}</p>
-                              <p className="small">Sector solicitante sugerido: {lugar.sector_sugerido || "-"}</p>
-                            </>
-                          )}
-                        </div>
-
-                        <div className="actions">
-                          {editando ? (
-                            <>
-                              <Button variant="success" onClick={() => actualizarLugar(item)}>
-                                Guardar
-                              </Button>
-                              <Button variant="outline" onClick={() => setLugarEditando(null)}>
-                                Cancelar
-                              </Button>
-                            </>
-                          ) : (
-                            <>
-                              <Button variant="outline" onClick={() => setLugarEditando(lugar)}>
-                                Editar
-                              </Button>
-                              <Button variant="danger" onClick={() => desactivarLugar(lugar.id)}>
-                                Desactivar
-                              </Button>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </section>
+              <LugaresView
+                lugares={lugares}
+                lugarEditando={lugarEditando}
+                setLugarEditando={setLugarEditando}
+                actualizarLugar={actualizarLugar}
+                desactivarLugar={desactivarLugar}
+              />
             )}
           </>
         )}
       </div>
     </div>
+  );
+}
+
+function EmpleadoForm({ form, setForm, lugares, elegirLugar, crearSolicitud }) {
+  return (
+    <section className="card">
+      <p className="eyebrow">Empleado</p>
+      <h2>Nueva solicitud para transportista</h2>
+      <p className="muted">Los campos marcados con * son obligatorios.</p>
+
+      <form onSubmit={crearSolicitud} className="form">
+        <Field label="Lugar predeterminado">
+          <select value={form.lugar_predeterminado_id} onChange={(e) => elegirLugar(e.target.value)}>
+            <option value="">Cargar dirección manual</option>
+            {lugares.map((lugar) => (
+              <option key={lugar.id} value={lugar.id}>{lugar.nombre}</option>
+            ))}
+          </select>
+        </Field>
+
+        <div className="grid">
+          <Field label="Fecha" required>
+            <input type="date" value={form.fecha} onChange={(e) => setForm({ ...form, fecha: e.target.value })} />
+          </Field>
+
+          <Field label="Sector solicitante" required>
+            <select value={form.sector} onChange={(e) => setForm({ ...form, sector: e.target.value })}>
+              {sectores.map((x) => <option key={x}>{x}</option>)}
+            </select>
+          </Field>
+        </div>
+
+        <div className="grid">
+          <Field label="Tipo de tarea" required>
+            <select value={form.tipo_tarea} onChange={(e) => setForm({ ...form, tipo_tarea: e.target.value })}>
+              {tipos.map((x) => <option key={x}>{x}</option>)}
+            </select>
+          </Field>
+
+          <Field label="Prioridad" required>
+            <select value={form.prioridad} onChange={(e) => setForm({ ...form, prioridad: e.target.value })}>
+              {prioridades.map((x) => <option key={x}>{x}</option>)}
+            </select>
+          </Field>
+        </div>
+
+        <Field label="Dirección completa" required>
+          <input placeholder="Ej: Arcos 2140, Belgrano" value={form.direccion} onChange={(e) => setForm({ ...form, direccion: e.target.value })} />
+        </Field>
+
+        <div className="grid">
+          <Field label="Horario" required>
+            <select
+              value={form.horario_tipo}
+              onChange={(e) =>
+                setForm({
+                  ...form,
+                  horario_tipo: e.target.value,
+                  horario_hora: "",
+                  horario_desde: "",
+                  horario_hasta: "",
+                })
+              }
+            >
+              {horarios.map((x) => <option key={x}>{x}</option>)}
+            </select>
+          </Field>
+
+          <HorarioCampos value={form} onChange={setForm} />
+        </div>
+
+        <div className="grid">
+          <Field label="Contacto en destino" required>
+            <input placeholder="Nombre" value={form.contacto} onChange={(e) => setForm({ ...form, contacto: e.target.value })} />
+          </Field>
+
+          <Field label="Teléfono de contacto" required>
+            <input
+              type="tel"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              placeholder="Solo números"
+              value={form.telefono}
+              onChange={(e) => setForm({ ...form, telefono: onlyNumbers(e.target.value) })}
+            />
+          </Field>
+        </div>
+
+        <div className="grid">
+          <Field label="Qué lleva" required={requiereLleva(form.tipo_tarea)}>
+            <textarea
+              placeholder={requiereLleva(form.tipo_tarea) ? "Campo obligatorio. Ej: prendas, cajas, remito." : "Opcional."}
+              value={form.lleva}
+              onChange={(e) => setForm({ ...form, lleva: e.target.value })}
+            />
+          </Field>
+
+          <Field label="Qué trae" required={requiereTrae(form.tipo_tarea)}>
+            <textarea
+              placeholder={requiereTrae(form.tipo_tarea) ? "Campo obligatorio. Ej: producción, cambios, documentación." : "Opcional."}
+              value={form.trae}
+              onChange={(e) => setForm({ ...form, trae: e.target.value })}
+            />
+          </Field>
+        </div>
+
+        <Field label="Detalle de la tarea">
+          <textarea placeholder="Opcional. Aclaración adicional para transportista." value={form.detalle} onChange={(e) => setForm({ ...form, detalle: e.target.value })} />
+        </Field>
+
+        <Button type="submit">Enviar solicitud</Button>
+      </form>
+    </section>
+  );
+}
+
+function EditorSolicitud({ solicitudEditando, setSolicitudEditando, lugares, elegirLugarEdicion, guardarCambiosSolicitud, eliminarSolicitud }) {
+  return (
+    <section className="card">
+      <p className="eyebrow">Editar solicitud</p>
+      <h2>Modificar o eliminar solicitud</h2>
+
+      <form onSubmit={guardarCambiosSolicitud} className="form">
+        <Field label="Lugar predeterminado">
+          <select value={solicitudEditando.lugar_predeterminado_id || ""} onChange={(e) => elegirLugarEdicion(e.target.value)}>
+            <option value="">Sin lugar predeterminado</option>
+            {lugares.map((lugar) => (
+              <option key={lugar.id} value={lugar.id}>{lugar.nombre}</option>
+            ))}
+          </select>
+        </Field>
+
+        <div className="grid">
+          <Field label="Fecha" required>
+            <input type="date" value={solicitudEditando.fecha} onChange={(e) => setSolicitudEditando({ ...solicitudEditando, fecha: e.target.value })} />
+          </Field>
+
+          <Field label="Sector solicitante" required>
+            <select value={solicitudEditando.sector} onChange={(e) => setSolicitudEditando({ ...solicitudEditando, sector: e.target.value })}>
+              {sectores.map((x) => <option key={x}>{x}</option>)}
+            </select>
+          </Field>
+        </div>
+
+        <div className="grid">
+          <Field label="Tipo de tarea" required>
+            <select value={solicitudEditando.tipo_tarea} onChange={(e) => setSolicitudEditando({ ...solicitudEditando, tipo_tarea: e.target.value })}>
+              {tipos.map((x) => <option key={x}>{x}</option>)}
+            </select>
+          </Field>
+
+          <Field label="Prioridad" required>
+            <select value={solicitudEditando.prioridad} onChange={(e) => setSolicitudEditando({ ...solicitudEditando, prioridad: e.target.value })}>
+              {prioridades.map((x) => <option key={x}>{x}</option>)}
+            </select>
+          </Field>
+        </div>
+
+        <Field label="Dirección completa" required>
+          <input value={solicitudEditando.direccion} onChange={(e) => setSolicitudEditando({ ...solicitudEditando, direccion: e.target.value })} />
+        </Field>
+
+        <div className="grid">
+          <Field label="Horario" required>
+            <select
+              value={solicitudEditando.horario_tipo}
+              onChange={(e) =>
+                setSolicitudEditando({
+                  ...solicitudEditando,
+                  horario_tipo: e.target.value,
+                  horario_hora: "",
+                  horario_desde: "",
+                  horario_hasta: "",
+                })
+              }
+            >
+              {horarios.map((x) => <option key={x}>{x}</option>)}
+            </select>
+          </Field>
+
+          <HorarioCampos value={solicitudEditando} onChange={setSolicitudEditando} />
+        </div>
+
+        <div className="grid">
+          <Field label="Contacto en destino" required>
+            <input value={solicitudEditando.contacto} onChange={(e) => setSolicitudEditando({ ...solicitudEditando, contacto: e.target.value })} />
+          </Field>
+
+          <Field label="Teléfono de contacto" required>
+            <input
+              type="tel"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              value={solicitudEditando.telefono}
+              onChange={(e) => setSolicitudEditando({ ...solicitudEditando, telefono: onlyNumbers(e.target.value) })}
+            />
+          </Field>
+        </div>
+
+        <div className="grid">
+          <Field label="Qué lleva" required={requiereLleva(solicitudEditando.tipo_tarea)}>
+            <textarea value={solicitudEditando.lleva || ""} onChange={(e) => setSolicitudEditando({ ...solicitudEditando, lleva: e.target.value })} />
+          </Field>
+
+          <Field label="Qué trae" required={requiereTrae(solicitudEditando.tipo_tarea)}>
+            <textarea value={solicitudEditando.trae || ""} onChange={(e) => setSolicitudEditando({ ...solicitudEditando, trae: e.target.value })} />
+          </Field>
+        </div>
+
+        <Field label="Detalle de la tarea">
+          <textarea value={solicitudEditando.detalle || ""} onChange={(e) => setSolicitudEditando({ ...solicitudEditando, detalle: e.target.value })} />
+        </Field>
+
+        <Field label="Orden de ruta">
+          <input type="number" min="1" value={solicitudEditando.orden_ruta || ""} onChange={(e) => setSolicitudEditando({ ...solicitudEditando, orden_ruta: e.target.value })} />
+        </Field>
+
+        <div className="actions">
+          <Button type="submit" variant="success">Guardar cambios</Button>
+          <Button type="button" variant="outline" onClick={() => setSolicitudEditando(null)}>Cancelar</Button>
+          <Button type="button" variant="danger" onClick={() => eliminarSolicitud(solicitudEditando.id)}>Eliminar solicitud</Button>
+        </div>
+      </form>
+    </section>
+  );
+}
+
+function SemanaView({ semanaInicio, setSemanaInicio, diasSemana, solicitudesSemana, cambiarFecha, cambiarOrden, empezarEdicion, marcar }) {
+  return (
+    <section className="card">
+      <div className="topline">
+        <div>
+          <p className="eyebrow">Vista semanal</p>
+          <h2>Semana del {semanaInicio}</h2>
+          <p className="muted">Podés mover solicitudes de día si conviene resolverlas antes.</p>
+        </div>
+
+        <Field label="Inicio de semana">
+          <input type="date" value={semanaInicio} onChange={(e) => setSemanaInicio(getMonday(e.target.value))} />
+        </Field>
+      </div>
+
+      <div className="list">
+        {diasSemana.map((dia) => {
+          const items = solicitudesSemana.filter((s) => s.fecha === dia);
+
+          return (
+            <div key={dia} className="card">
+              <h2>{formatDateLabel(dia)}</h2>
+              {items.length === 0 && <p className="muted">Sin solicitudes.</p>}
+
+              <div className="list">
+                {items.map((s) => (
+                  <SolicitudCard key={s.id} s={s}>
+                    <Field label="Mover a fecha">
+                      <input type="date" value={s.fecha} onChange={(e) => cambiarFecha(s.id, e.target.value)} />
+                    </Field>
+
+                    <Field label="Orden">
+                      <input type="number" min="1" value={s.orden_ruta || ""} onChange={(e) => cambiarOrden(s.id, e.target.value)} />
+                    </Field>
+
+                    <Button variant="outline" onClick={() => empezarEdicion(s)}>Editar</Button>
+                    <Button variant="success" onClick={() => marcar(s.id, true)}>Entregado</Button>
+                    <Button variant="danger" onClick={() => marcar(s.id, false)}>No entregado</Button>
+                  </SolicitudCard>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function TransportistaView({ fechaFiltro, setFechaFiltro, ruta, whatsappText, cambiarOrden, empezarEdicion, marcar }) {
+  return (
+    <section className="card">
+      <div className="topline">
+        <div>
+          <p className="eyebrow">Transportista</p>
+          <h2>Ruta del transportista</h2>
+          <p className="muted">Por defecto ve todas las paradas pendientes. También puede filtrar por fecha.</p>
+        </div>
+
+        <div className="actions">
+          <Field label="Filtrar por fecha">
+            <input type="date" value={fechaFiltro} onChange={(e) => setFechaFiltro(e.target.value)} />
+          </Field>
+
+          <Button variant="outline" type="button" onClick={() => setFechaFiltro("")}>Ver todas</Button>
+
+          <a href={`https://wa.me/?text=${whatsappText}`} target="_blank" rel="noreferrer">
+            <Button>WhatsApp</Button>
+          </a>
+        </div>
+      </div>
+
+      <p className="notice">Se ordena por fecha, orden manual, urgencia y dirección. Después conectamos optimización real.</p>
+
+      <div className="list">
+        {ruta.length === 0 && <p className="muted">No quedan paradas pendientes para mostrar.</p>}
+
+        {ruta.map((s, i) => (
+          <div key={s.id} className="route-item">
+            <div className="route-number">{i + 1}</div>
+
+            <SolicitudCard s={s}>
+              <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(s.direccion)}`} target="_blank" rel="noreferrer">
+                <Button variant="outline">Abrir Maps</Button>
+              </a>
+
+              <Field label="Orden">
+                <input type="number" min="1" value={s.orden_ruta || ""} onChange={(e) => cambiarOrden(s.id, e.target.value)} />
+              </Field>
+
+              <Button variant="outline" onClick={() => empezarEdicion(s)}>Editar</Button>
+              <Button variant="success" onClick={() => marcar(s.id, true)}>Entregado</Button>
+              <Button variant="danger" onClick={() => marcar(s.id, false)}>No entregado</Button>
+            </SolicitudCard>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function ResumenCarga({ fechaFiltro, setFechaFiltro, resumenCarga }) {
+  return (
+    <section className="card">
+      <div className="topline">
+        <div>
+          <p className="eyebrow">Resumen de carga</p>
+          <h2>Qué lleva y qué trae el transportista</h2>
+          <p className="muted">Basado en las paradas pendientes visibles. Podés filtrar por fecha o ver todas.</p>
+        </div>
+
+        <div className="actions">
+          <Field label="Filtrar por fecha">
+            <input type="date" value={fechaFiltro} onChange={(e) => setFechaFiltro(e.target.value)} />
+          </Field>
+          <Button variant="outline" type="button" onClick={() => setFechaFiltro("")}>Ver todas</Button>
+        </div>
+      </div>
+
+      <div className="grid">
+        <div className="card">
+          <h2>Lleva</h2>
+          {resumenCarga.lleva.length === 0 && <p className="muted">Sin carga registrada para llevar.</p>}
+          {resumenCarga.lleva.map((item, index) => <p key={index}>{item}</p>)}
+        </div>
+
+        <div className="card">
+          <h2>Trae</h2>
+          {resumenCarga.trae.length === 0 && <p className="muted">Sin carga registrada para traer.</p>}
+          {resumenCarga.trae.map((item, index) => <p key={index}>{item}</p>)}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function LugaresView({ lugares, lugarEditando, setLugarEditando, actualizarLugar, desactivarLugar }) {
+  return (
+    <section className="card">
+      <p className="eyebrow">Lugares predeterminados</p>
+      <h2>Administrar lugares guardados</h2>
+      <p className="muted">Editá datos mal cargados o desactivá lugares que ya no se usan.</p>
+
+      <div className="list">
+        {lugares.length === 0 && <p className="muted">Todavía no hay lugares guardados.</p>}
+
+        {lugares.map((lugar) => {
+          const editando = lugarEditando?.id === lugar.id;
+          const item = editando ? lugarEditando : lugar;
+
+          return (
+            <div key={lugar.id} className="request">
+              <div style={{ flex: 1 }}>
+                {editando ? (
+                  <div className="form">
+                    <Field label="Nombre">
+                      <input value={item.nombre || ""} onChange={(e) => setLugarEditando({ ...item, nombre: e.target.value })} />
+                    </Field>
+                    <Field label="Dirección">
+                      <input value={item.direccion || ""} onChange={(e) => setLugarEditando({ ...item, direccion: e.target.value })} />
+                    </Field>
+                    <div className="grid">
+                      <Field label="Contacto">
+                        <input value={item.contacto || ""} onChange={(e) => setLugarEditando({ ...item, contacto: e.target.value })} />
+                      </Field>
+                      <Field label="Teléfono de contacto">
+                        <input type="tel" inputMode="numeric" pattern="[0-9]*" value={item.telefono || ""} onChange={(e) => setLugarEditando({ ...item, telefono: onlyNumbers(e.target.value) })} />
+                      </Field>
+                    </div>
+                    <Field label="Sector solicitante sugerido">
+                      <select value={item.sector_sugerido || ""} onChange={(e) => setLugarEditando({ ...item, sector_sugerido: e.target.value })}>
+                        <option value="">Sin sector sugerido</option>
+                        {sectores.map((s) => <option key={s}>{s}</option>)}
+                      </select>
+                    </Field>
+                    <Field label="Detalle base">
+                      <textarea value={item.detalle_base || ""} onChange={(e) => setLugarEditando({ ...item, detalle_base: e.target.value })} />
+                    </Field>
+                  </div>
+                ) : (
+                  <>
+                    <strong>{lugar.nombre}</strong>
+                    <p>{lugar.direccion}</p>
+                    <p className="small">Contacto: {lugar.contacto || "-"} · {lugar.telefono || "-"}</p>
+                    <p className="small">Sector solicitante sugerido: {lugar.sector_sugerido || "-"}</p>
+                  </>
+                )}
+              </div>
+
+              <div className="actions">
+                {editando ? (
+                  <>
+                    <Button variant="success" onClick={() => actualizarLugar(item)}>Guardar</Button>
+                    <Button variant="outline" onClick={() => setLugarEditando(null)}>Cancelar</Button>
+                  </>
+                ) : (
+                  <>
+                    <Button variant="outline" onClick={() => setLugarEditando(lugar)}>Editar</Button>
+                    <Button variant="danger" onClick={() => desactivarLugar(lugar.id)}>Desactivar</Button>
+                  </>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 

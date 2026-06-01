@@ -209,6 +209,13 @@ function App() {
   const [solicitudEditando, setSolicitudEditando] = useState(null);
   const [lugarEditando, setLugarEditando] = useState(null);
 
+  const [nuevoLugar, setNuevoLugar] = useState({
+    nombre: "",
+    direccion: "",
+    contacto: "",
+    telefono: "",
+  });
+
   const [form, setForm] = useState({
     fecha: getToday(),
     sector: "Ventas",
@@ -275,8 +282,6 @@ function App() {
       direccion: lugar.direccion || "",
       contacto: lugar.contacto || "",
       telefono: onlyNumbers(lugar.telefono || ""),
-      detalle: lugar.detalle_base || form.detalle,
-      sector: lugar.sector_sugerido || form.sector,
     });
   }
 
@@ -295,8 +300,6 @@ function App() {
       direccion: lugar.direccion || "",
       contacto: lugar.contacto || "",
       telefono: onlyNumbers(lugar.telefono || ""),
-      detalle: lugar.detalle_base || solicitudEditando.detalle,
-      sector: lugar.sector_sugerido || solicitudEditando.sector,
     });
   }
 
@@ -309,8 +312,8 @@ function App() {
       direccion: payload.direccion,
       contacto: payload.contacto,
       telefono: payload.telefono,
-      detalle_base: payload.detalle || "",
-      sector_sugerido: payload.sector,
+      detalle_base: "",
+      sector_sugerido: "",
       activo: true,
     });
 
@@ -321,6 +324,40 @@ function App() {
 
     await cargarLugares();
     alert("Lugar guardado como predeterminado.");
+  }
+
+  async function crearLugarManual(e) {
+    e.preventDefault();
+
+    if (!nuevoLugar.nombre.trim() || !nuevoLugar.direccion.trim()) {
+      alert("Completá como mínimo nombre del lugar y dirección completa.");
+      return;
+    }
+
+    const { error } = await supabase.from("lugares_predeterminados").insert({
+      nombre: nuevoLugar.nombre.trim(),
+      direccion: nuevoLugar.direccion.trim(),
+      contacto: nuevoLugar.contacto.trim(),
+      telefono: onlyNumbers(nuevoLugar.telefono),
+      detalle_base: "",
+      sector_sugerido: "",
+      activo: true,
+    });
+
+    if (error) {
+      alert("Error guardando lugar predeterminado: " + error.message);
+      return;
+    }
+
+    setNuevoLugar({
+      nombre: "",
+      direccion: "",
+      contacto: "",
+      telefono: "",
+    });
+
+    await cargarLugares();
+    alert("Lugar predeterminado creado.");
   }
 
   function validarSolicitud(item) {
@@ -510,15 +547,20 @@ function App() {
   }
 
   async function actualizarLugar(lugar) {
+    if (!lugar.nombre.trim() || !lugar.direccion.trim()) {
+      alert("Nombre y dirección son obligatorios.");
+      return;
+    }
+
     const { error } = await supabase
       .from("lugares_predeterminados")
       .update({
-        nombre: lugar.nombre,
-        direccion: lugar.direccion,
-        contacto: lugar.contacto,
+        nombre: lugar.nombre.trim(),
+        direccion: lugar.direccion.trim(),
+        contacto: lugar.contacto || "",
         telefono: onlyNumbers(lugar.telefono || ""),
-        detalle_base: lugar.detalle_base,
-        sector_sugerido: lugar.sector_sugerido,
+        detalle_base: "",
+        sector_sugerido: "",
         updated_at: new Date().toISOString(),
       })
       .eq("id", lugar.id);
@@ -691,6 +733,9 @@ function App() {
                 setLugarEditando={setLugarEditando}
                 actualizarLugar={actualizarLugar}
                 desactivarLugar={desactivarLugar}
+                nuevoLugar={nuevoLugar}
+                setNuevoLugar={setNuevoLugar}
+                crearLugarManual={crearLugarManual}
               />
             )}
           </>
@@ -1060,12 +1105,66 @@ function ResumenCarga({ fechaFiltro, setFechaFiltro, resumenCarga }) {
   );
 }
 
-function LugaresView({ lugares, lugarEditando, setLugarEditando, actualizarLugar, desactivarLugar }) {
+function LugaresView({
+  lugares,
+  lugarEditando,
+  setLugarEditando,
+  actualizarLugar,
+  desactivarLugar,
+  nuevoLugar,
+  setNuevoLugar,
+  crearLugarManual,
+}) {
   return (
     <section className="card">
       <p className="eyebrow">Lugares predeterminados</p>
       <h2>Administrar lugares guardados</h2>
-      <p className="muted">Editá datos mal cargados o desactivá lugares que ya no se usan.</p>
+      <p className="muted">Los lugares se ordenan alfabéticamente por nombre. Guardá solo datos fijos: nombre, dirección, contacto y teléfono.</p>
+
+      <div className="card">
+        <h2>Nuevo lugar predeterminado</h2>
+
+        <form onSubmit={crearLugarManual} className="form">
+          <Field label="Nombre del lugar" required>
+            <input
+              placeholder="Ej: Taller Beto"
+              value={nuevoLugar.nombre}
+              onChange={(e) => setNuevoLugar({ ...nuevoLugar, nombre: e.target.value })}
+            />
+          </Field>
+
+          <Field label="Dirección completa" required>
+            <input
+              placeholder="Ej: Av. Avellaneda 3200, Flores"
+              value={nuevoLugar.direccion}
+              onChange={(e) => setNuevoLugar({ ...nuevoLugar, direccion: e.target.value })}
+            />
+          </Field>
+
+          <div className="grid">
+            <Field label="Contacto">
+              <input
+                placeholder="Ej: Beto"
+                value={nuevoLugar.contacto}
+                onChange={(e) => setNuevoLugar({ ...nuevoLugar, contacto: e.target.value })}
+              />
+            </Field>
+
+            <Field label="Teléfono de contacto">
+              <input
+                type="tel"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                placeholder="Solo números"
+                value={nuevoLugar.telefono}
+                onChange={(e) => setNuevoLugar({ ...nuevoLugar, telefono: onlyNumbers(e.target.value) })}
+              />
+            </Field>
+          </div>
+
+          <Button type="submit">Guardar lugar</Button>
+        </form>
+      </div>
 
       <div className="list">
         {lugares.length === 0 && <p className="muted">Todavía no hay lugares guardados.</p>}
@@ -1079,36 +1178,35 @@ function LugaresView({ lugares, lugarEditando, setLugarEditando, actualizarLugar
               <div style={{ flex: 1 }}>
                 {editando ? (
                   <div className="form">
-                    <Field label="Nombre">
+                    <Field label="Nombre del lugar" required>
                       <input value={item.nombre || ""} onChange={(e) => setLugarEditando({ ...item, nombre: e.target.value })} />
                     </Field>
-                    <Field label="Dirección">
+
+                    <Field label="Dirección completa" required>
                       <input value={item.direccion || ""} onChange={(e) => setLugarEditando({ ...item, direccion: e.target.value })} />
                     </Field>
+
                     <div className="grid">
                       <Field label="Contacto">
                         <input value={item.contacto || ""} onChange={(e) => setLugarEditando({ ...item, contacto: e.target.value })} />
                       </Field>
+
                       <Field label="Teléfono de contacto">
-                        <input type="tel" inputMode="numeric" pattern="[0-9]*" value={item.telefono || ""} onChange={(e) => setLugarEditando({ ...item, telefono: onlyNumbers(e.target.value) })} />
+                        <input
+                          type="tel"
+                          inputMode="numeric"
+                          pattern="[0-9]*"
+                          value={item.telefono || ""}
+                          onChange={(e) => setLugarEditando({ ...item, telefono: onlyNumbers(e.target.value) })}
+                        />
                       </Field>
                     </div>
-                    <Field label="Sector solicitante sugerido">
-                      <select value={item.sector_sugerido || ""} onChange={(e) => setLugarEditando({ ...item, sector_sugerido: e.target.value })}>
-                        <option value="">Sin sector sugerido</option>
-                        {sectores.map((s) => <option key={s}>{s}</option>)}
-                      </select>
-                    </Field>
-                    <Field label="Detalle base">
-                      <textarea value={item.detalle_base || ""} onChange={(e) => setLugarEditando({ ...item, detalle_base: e.target.value })} />
-                    </Field>
                   </div>
                 ) : (
                   <>
                     <strong>{lugar.nombre}</strong>
                     <p>{lugar.direccion}</p>
                     <p className="small">Contacto: {lugar.contacto || "-"} · {lugar.telefono || "-"}</p>
-                    <p className="small">Sector solicitante sugerido: {lugar.sector_sugerido || "-"}</p>
                   </>
                 )}
               </div>

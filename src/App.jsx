@@ -43,6 +43,18 @@ function addDays(dateString, days) {
   return date.toISOString().slice(0, 10);
 }
 
+function formatDateAR(dateString) {
+  if (!dateString) return "";
+  const date = new Date(dateString + "T00:00:00");
+  if (Number.isNaN(date.getTime())) return dateString;
+
+  return date.toLocaleDateString("es-AR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "2-digit",
+  });
+}
+
 function formatDateLabel(dateString) {
   const date = new Date(dateString + "T00:00:00");
   return date.toLocaleDateString("es-AR", {
@@ -120,6 +132,11 @@ function isHorarioCompleto(item) {
   if (item.horario_tipo === "Entre dos horarios") return Boolean(item.horario_desde && item.horario_hasta);
   if (item.horario_tipo === "Horario exacto") return Boolean(item.horario_hora);
   return false;
+}
+
+function getNombreLugar(solicitud, lugares) {
+  const lugar = lugares.find((lugar) => lugar.id === solicitud.lugar_predeterminado_id);
+  return lugar?.nombre || solicitud.contacto || "Sin nombre";
 }
 
 function Button({ children, variant = "primary", ...props }) {
@@ -623,10 +640,26 @@ function App() {
     const pendientes = ruta.filter((s) => s.entregado !== true);
 
     return {
-      lleva: pendientes.filter((s) => s.lleva).map((s) => `${s.fecha} · ${s.contacto} · ${s.direccion}: ${s.lleva}`),
-      trae: pendientes.filter((s) => s.trae).map((s) => `${s.fecha} · ${s.contacto} · ${s.direccion}: ${s.trae}`),
+      lleva: pendientes
+        .filter((s) => s.lleva)
+        .map((s) => ({
+          id: `lleva-${s.id}`,
+          fecha: formatDateAR(s.fecha),
+          nombre: getNombreLugar(s, lugares),
+          direccion: s.direccion,
+          detalle: s.lleva,
+        })),
+      trae: pendientes
+        .filter((s) => s.trae)
+        .map((s) => ({
+          id: `trae-${s.id}`,
+          fecha: formatDateAR(s.fecha),
+          nombre: getNombreLugar(s, lugares),
+          direccion: s.direccion,
+          detalle: s.trae,
+        })),
     };
-  }, [ruta]);
+  }, [ruta, lugares]);
 
   const stats = useMemo(() => ({
     total: solicitudesVisibles.length,
@@ -637,10 +670,10 @@ function App() {
   }), [solicitudesVisibles]);
 
   const whatsappText = encodeURIComponent(
-    `Transportista, ruta sugerida de Logística Sail${fechaFiltro ? ` para ${fechaFiltro}` : ""}:\n\n${ruta
+    `Transportista, ruta sugerida de Logística Sail${fechaFiltro ? ` para ${formatDateAR(fechaFiltro)}` : ""}:\n\n${ruta
       .map(
         (s, i) =>
-          `${i + 1}) ${s.fecha} - ${s.direccion}\n${s.tipo_tarea} - ${s.detalle || "Sin detalle adicional"}\nLleva: ${s.lleva || "-"}\nTrae: ${s.trae || "-"}\nContacto: ${s.contacto} ${s.telefono}\nHorario: ${getHorario(s)}`
+          `${i + 1}) ${formatDateAR(s.fecha)} - ${s.direccion}\n${s.tipo_tarea} - ${s.detalle || "Sin detalle adicional"}\nLleva: ${s.lleva || "-"}\nTrae: ${s.trae || "-"}\nContacto: ${s.contacto} ${s.telefono}\nHorario: ${getHorario(s)}`
       )
       .join("\n\n")}\n\nMarcá cada parada como Entregado o No entregado al finalizar.`
   );
@@ -975,7 +1008,7 @@ function SemanaView({ semanaInicio, setSemanaInicio, diasSemana, solicitudesSema
       <div className="topline">
         <div>
           <p className="eyebrow">Vista semanal</p>
-          <h2>Semana del {semanaInicio}</h2>
+          <h2>Semana del {formatDateAR(semanaInicio)}</h2>
           <p className="muted">Podés mover solicitudes de día si conviene resolverlas antes.</p>
         </div>
 
@@ -1071,6 +1104,23 @@ function TransportistaView({ fechaFiltro, setFechaFiltro, ruta, whatsappText, ca
 }
 
 function ResumenCarga({ fechaFiltro, setFechaFiltro, resumenCarga }) {
+  function renderResumenItem(item, tipo) {
+    return (
+      <div key={item.id} className="resumen-item">
+        <div className="resumen-item-fecha">{item.fecha}</div>
+        <div className="resumen-item-titulo">{item.nombre}</div>
+
+        <div className="resumen-item-direccion">{item.direccion}</div>
+
+        <div className="resumen-item-label">
+          {tipo === "lleva" ? "Qué lleva" : "Qué trae"}
+        </div>
+
+        <div className="resumen-item-detalle">{item.detalle}</div>
+      </div>
+    );
+  }
+
   return (
     <section className="card">
       <div className="topline">
@@ -1092,13 +1142,13 @@ function ResumenCarga({ fechaFiltro, setFechaFiltro, resumenCarga }) {
         <div className="card">
           <h2>Lleva</h2>
           {resumenCarga.lleva.length === 0 && <p className="muted">Sin carga registrada para llevar.</p>}
-          {resumenCarga.lleva.map((item, index) => <p key={index}>{item}</p>)}
+          {resumenCarga.lleva.map((item) => renderResumenItem(item, "lleva"))}
         </div>
 
         <div className="card">
           <h2>Trae</h2>
           {resumenCarga.trae.length === 0 && <p className="muted">Sin carga registrada para traer.</p>}
-          {resumenCarga.trae.map((item, index) => <p key={index}>{item}</p>)}
+          {resumenCarga.trae.map((item) => renderResumenItem(item, "trae"))}
         </div>
       </div>
     </section>
@@ -1259,7 +1309,7 @@ function SolicitudCard({ s, children }) {
       <div>
         <div className="request-head">
           <strong>
-            {s.fecha} · {s.tipo_tarea} · {s.sector}
+            {formatDateAR(s.fecha)} · {s.tipo_tarea} · {s.sector}
           </strong>
 
           <Badge entregado={s.entregado} />

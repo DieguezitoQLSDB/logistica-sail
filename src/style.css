@@ -317,3 +317,36 @@ a {
     flex-direction: column;
   }
 }
+.resumen-simple-lista {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.resumen-simple-item {
+  border: 1px solid #e6e2dc;
+  border-radius: 16px;
+  padding: 16px 18px;
+  background: #fafafa;
+}
+
+.resumen-simple-fecha {
+  font-weight: 800;
+  font-size: 15px;
+  margin-bottom: 6px;
+  color: #171717;
+}
+
+.resumen-simple-nombre {
+  font-weight: 800;
+  font-size: 18px;
+  margin-bottom: 10px;
+  color: #171717;
+}
+
+.resumen-simple-detalle {
+  font-size: 15px;
+  line-height: 1.45;
+  color: #333;
+  white-space: pre-wrap;
+}

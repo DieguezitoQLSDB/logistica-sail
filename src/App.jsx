@@ -1104,19 +1104,12 @@ function TransportistaView({ fechaFiltro, setFechaFiltro, ruta, whatsappText, ca
 }
 
 function ResumenCarga({ fechaFiltro, setFechaFiltro, resumenCarga }) {
-  function renderResumenItem(item, tipo) {
+  function renderResumenItem(item) {
     return (
-      <div key={item.id} className="resumen-item">
-        <div className="resumen-item-fecha">{item.fecha}</div>
-        <div className="resumen-item-titulo">{item.nombre}</div>
-
-        <div className="resumen-item-direccion">{item.direccion}</div>
-
-        <div className="resumen-item-label">
-          {tipo === "lleva" ? "Qué lleva" : "Qué trae"}
-        </div>
-
-        <div className="resumen-item-detalle">{item.detalle}</div>
+      <div key={item.id} className="resumen-simple-item">
+        <div className="resumen-simple-fecha">{item.fecha}</div>
+        <div className="resumen-simple-nombre">{item.nombre}</div>
+        <div className="resumen-simple-detalle">{item.detalle}</div>
       </div>
     );
   }
@@ -1127,28 +1120,49 @@ function ResumenCarga({ fechaFiltro, setFechaFiltro, resumenCarga }) {
         <div>
           <p className="eyebrow">Resumen de carga</p>
           <h2>Qué lleva y qué trae el transportista</h2>
-          <p className="muted">Basado en las paradas pendientes visibles. Podés filtrar por fecha o ver todas.</p>
+          <p className="muted">
+            Basado en las paradas pendientes visibles. Podés filtrar por fecha o ver todas.
+          </p>
         </div>
 
         <div className="actions">
           <Field label="Filtrar por fecha">
-            <input type="date" value={fechaFiltro} onChange={(e) => setFechaFiltro(e.target.value)} />
+            <input
+              type="date"
+              value={fechaFiltro}
+              onChange={(e) => setFechaFiltro(e.target.value)}
+            />
           </Field>
-          <Button variant="outline" type="button" onClick={() => setFechaFiltro("")}>Ver todas</Button>
+
+          <Button variant="outline" type="button" onClick={() => setFechaFiltro("")}>
+            Ver todas
+          </Button>
         </div>
       </div>
 
       <div className="grid">
         <div className="card">
           <h2>Lleva</h2>
-          {resumenCarga.lleva.length === 0 && <p className="muted">Sin carga registrada para llevar.</p>}
-          {resumenCarga.lleva.map((item) => renderResumenItem(item, "lleva"))}
+
+          {resumenCarga.lleva.length === 0 && (
+            <p className="muted">Sin carga registrada para llevar.</p>
+          )}
+
+          <div className="resumen-simple-lista">
+            {resumenCarga.lleva.map((item) => renderResumenItem(item))}
+          </div>
         </div>
 
         <div className="card">
           <h2>Trae</h2>
-          {resumenCarga.trae.length === 0 && <p className="muted">Sin carga registrada para traer.</p>}
-          {resumenCarga.trae.map((item) => renderResumenItem(item, "trae"))}
+
+          {resumenCarga.trae.length === 0 && (
+            <p className="muted">Sin carga registrada para traer.</p>
+          )}
+
+          <div className="resumen-simple-lista">
+            {resumenCarga.trae.map((item) => renderResumenItem(item))}
+          </div>
         </div>
       </div>
     </section>

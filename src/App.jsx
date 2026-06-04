@@ -45,8 +45,9 @@ function addDays(dateString, days) {
 
 function formatDateAR(dateString) {
   if (!dateString) return "";
-  const date = new Date(dateString + "T00:00:00");
-  if (Number.isNaN(date.getTime())) return dateString;
+  const cleanDate = String(dateString).slice(0, 10);
+  const date = new Date(cleanDate + "T00:00:00");
+  if (Number.isNaN(date.getTime())) return cleanDate;
 
   return date.toLocaleDateString("es-AR", {
     day: "2-digit",
@@ -541,6 +542,24 @@ function App() {
     else await cargarSolicitudes();
   }
 
+  async function volverAPendiente(id) {
+    const confirmar = window.confirm("¿Querés volver esta solicitud a pendiente?");
+    if (!confirmar) return;
+
+    const { error } = await supabase
+      .from("solicitudes")
+      .update({ entregado: null, updated_at: new Date().toISOString() })
+      .eq("id", id);
+
+    if (error) {
+      alert("Error volviendo la solicitud a pendiente: " + error.message);
+      return;
+    }
+
+    await cargarSolicitudes();
+    alert("Solicitud vuelta a pendiente.");
+  }
+
   async function cambiarFecha(id, nuevaFecha) {
     const { error } = await supabase
       .from("solicitudes")
@@ -561,6 +580,39 @@ function App() {
 
     if (error) alert("Error cambiando orden: " + error.message);
     else await cargarSolicitudes();
+  }
+
+  async function moverEnRuta(id, direccionMovimiento, rutaActual) {
+    const index = rutaActual.findIndex((s) => s.id === id);
+    if (index === -1) return;
+
+    const nuevoIndex = direccionMovimiento === "subir" ? index - 1 : index + 1;
+    if (nuevoIndex < 0 || nuevoIndex >= rutaActual.length) return;
+
+    const nuevaRuta = [...rutaActual];
+    const temp = nuevaRuta[index];
+    nuevaRuta[index] = nuevaRuta[nuevoIndex];
+    nuevaRuta[nuevoIndex] = temp;
+
+    const updates = nuevaRuta.map((solicitud, i) =>
+      supabase
+        .from("solicitudes")
+        .update({
+          orden_ruta: i + 1,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", solicitud.id)
+    );
+
+    const results = await Promise.all(updates);
+    const error = results.find((r) => r.error)?.error;
+
+    if (error) {
+      alert("Error reordenando la ruta: " + error.message);
+      return;
+    }
+
+    await cargarSolicitudes();
   }
 
   async function actualizarLugar(lugar) {
@@ -635,6 +687,22 @@ function App() {
         return a.direccion.localeCompare(b.direccion, "es");
       });
   }, [solicitudesVisibles]);
+
+  const historial = useMemo(() => {
+    const limite = addDays(getToday(), -30);
+
+    return solicitudes
+      .filter((s) => s.entregado === true)
+      .filter((s) => {
+        const fechaReferencia = String(s.updated_at || s.fecha || "").slice(0, 10);
+        return fechaReferencia >= limite;
+      })
+      .sort((a, b) => {
+        const fechaA = String(a.updated_at || a.fecha || "").slice(0, 10);
+        const fechaB = String(b.updated_at || b.fecha || "").slice(0, 10);
+        return fechaB.localeCompare(fechaA);
+      });
+  }, [solicitudes]);
 
   const resumenCarga = useMemo(() => {
     const pendientes = ruta.filter((s) => s.entregado !== true);
@@ -713,6 +781,7 @@ function App() {
           <Button variant={tab === "semana" ? "primary" : "outline"} onClick={() => setTab("semana")}>Semana</Button>
           <Button variant={tab === "transportista" ? "primary" : "outline"} onClick={() => setTab("transportista")}>Transportista</Button>
           <Button variant={tab === "resumen" ? "primary" : "outline"} onClick={() => setTab("resumen")}>Resumen carga</Button>
+          <Button variant={tab === "historial" ? "primary" : "outline"} onClick={() => setTab("historial")}>Historial</Button>
           <Button variant={tab === "lugares" ? "primary" : "outline"} onClick={() => setTab("lugares")}>Lugares</Button>
         </nav>
 
@@ -750,6 +819,7 @@ function App() {
                 ruta={ruta}
                 whatsappText={whatsappText}
                 cambiarOrden={cambiarOrden}
+                moverEnRuta={moverEnRuta}
                 empezarEdicion={empezarEdicion}
                 marcar={marcar}
               />
@@ -757,6 +827,14 @@ function App() {
 
             {tab === "resumen" && (
               <ResumenCarga fechaFiltro={fechaFiltro} setFechaFiltro={setFechaFiltro} resumenCarga={resumenCarga} />
+            )}
+
+            {tab === "historial" && (
+              <HistorialView
+                historial={historial}
+                volverAPendiente={volverAPendiente}
+                empezarEdicion={empezarEdicion}
+              />
             )}
 
             {tab === "lugares" && (
@@ -1051,14 +1129,23 @@ function SemanaView({ semanaInicio, setSemanaInicio, diasSemana, solicitudesSema
   );
 }
 
-function TransportistaView({ fechaFiltro, setFechaFiltro, ruta, whatsappText, cambiarOrden, empezarEdicion, marcar }) {
+function TransportistaView({
+  fechaFiltro,
+  setFechaFiltro,
+  ruta,
+  whatsappText,
+  cambiarOrden,
+  moverEnRuta,
+  empezarEdicion,
+  marcar,
+}) {
   return (
     <section className="card">
       <div className="topline">
         <div>
           <p className="eyebrow">Transportista</p>
           <h2>Ruta del transportista</h2>
-          <p className="muted">Por defecto ve todas las paradas pendientes. También puede filtrar por fecha.</p>
+          <p className="muted">Puede acomodar manualmente el orden de la ruta según le convenga.</p>
         </div>
 
         <div className="actions">
@@ -1074,7 +1161,9 @@ function TransportistaView({ fechaFiltro, setFechaFiltro, ruta, whatsappText, ca
         </div>
       </div>
 
-      <p className="notice">Se ordena por fecha, orden manual, urgencia y dirección. Después conectamos optimización real.</p>
+      <p className="notice">
+        Las órdenes se pueden mover con Subir/Bajar o escribiendo un número en Orden. Cuando se marca Entregado, pasa al Historial.
+      </p>
 
       <div className="list">
         {ruta.length === 0 && <p className="muted">No quedan paradas pendientes para mostrar.</p>}
@@ -1084,6 +1173,26 @@ function TransportistaView({ fechaFiltro, setFechaFiltro, ruta, whatsappText, ca
             <div className="route-number">{i + 1}</div>
 
             <SolicitudCard s={s}>
+              <div className="actions">
+                <Button
+                  variant="outline"
+                  type="button"
+                  disabled={i === 0}
+                  onClick={() => moverEnRuta(s.id, "subir", ruta)}
+                >
+                  Subir
+                </Button>
+
+                <Button
+                  variant="outline"
+                  type="button"
+                  disabled={i === ruta.length - 1}
+                  onClick={() => moverEnRuta(s.id, "bajar", ruta)}
+                >
+                  Bajar
+                </Button>
+              </div>
+
               <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(s.direccion)}`} target="_blank" rel="noreferrer">
                 <Button variant="outline">Abrir Maps</Button>
               </a>
@@ -1097,6 +1206,29 @@ function TransportistaView({ fechaFiltro, setFechaFiltro, ruta, whatsappText, ca
               <Button variant="danger" onClick={() => marcar(s.id, false)}>No entregado</Button>
             </SolicitudCard>
           </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function HistorialView({ historial, volverAPendiente, empezarEdicion }) {
+  return (
+    <section className="card">
+      <p className="eyebrow">Historial</p>
+      <h2>Órdenes entregadas</h2>
+      <p className="muted">
+        Acá aparecen las órdenes marcadas como entregadas durante los últimos 30 días. Si una se marcó por error, podés volverla a pendiente.
+      </p>
+
+      <div className="list">
+        {historial.length === 0 && <p className="muted">No hay órdenes entregadas en los últimos 30 días.</p>}
+
+        {historial.map((s) => (
+          <SolicitudCard key={s.id} s={s}>
+            <Button variant="outline" onClick={() => empezarEdicion(s)}>Editar</Button>
+            <Button variant="danger" onClick={() => volverAPendiente(s.id)}>Volver a pendiente</Button>
+          </SolicitudCard>
         ))}
       </div>
     </section>
@@ -1120,34 +1252,21 @@ function ResumenCarga({ fechaFiltro, setFechaFiltro, resumenCarga }) {
         <div>
           <p className="eyebrow">Resumen de carga</p>
           <h2>Qué lleva y qué trae el transportista</h2>
-          <p className="muted">
-            Basado en las paradas pendientes visibles. Podés filtrar por fecha o ver todas.
-          </p>
+          <p className="muted">Basado en las paradas pendientes visibles. Podés filtrar por fecha o ver todas.</p>
         </div>
 
         <div className="actions">
           <Field label="Filtrar por fecha">
-            <input
-              type="date"
-              value={fechaFiltro}
-              onChange={(e) => setFechaFiltro(e.target.value)}
-            />
+            <input type="date" value={fechaFiltro} onChange={(e) => setFechaFiltro(e.target.value)} />
           </Field>
-
-          <Button variant="outline" type="button" onClick={() => setFechaFiltro("")}>
-            Ver todas
-          </Button>
+          <Button variant="outline" type="button" onClick={() => setFechaFiltro("")}>Ver todas</Button>
         </div>
       </div>
 
       <div className="grid">
         <div className="card">
           <h2>Lleva</h2>
-
-          {resumenCarga.lleva.length === 0 && (
-            <p className="muted">Sin carga registrada para llevar.</p>
-          )}
-
+          {resumenCarga.lleva.length === 0 && <p className="muted">Sin carga registrada para llevar.</p>}
           <div className="resumen-simple-lista">
             {resumenCarga.lleva.map((item) => renderResumenItem(item))}
           </div>
@@ -1155,11 +1274,7 @@ function ResumenCarga({ fechaFiltro, setFechaFiltro, resumenCarga }) {
 
         <div className="card">
           <h2>Trae</h2>
-
-          {resumenCarga.trae.length === 0 && (
-            <p className="muted">Sin carga registrada para traer.</p>
-          )}
-
+          {resumenCarga.trae.length === 0 && <p className="muted">Sin carga registrada para traer.</p>}
           <div className="resumen-simple-lista">
             {resumenCarga.trae.map((item) => renderResumenItem(item))}
           </div>

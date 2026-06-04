@@ -476,7 +476,6 @@ function App() {
       trae: s.trae || "",
       telefono: onlyNumbers(s.telefono || ""),
       lugar_predeterminado_id: s.lugar_predeterminado_id || "",
-      orden_ruta: s.orden_ruta || "",
     });
 
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -500,7 +499,6 @@ function App() {
       lleva: solicitudEditando.lleva.trim(),
       trae: solicitudEditando.trae.trim(),
       lugar_predeterminado_id: solicitudEditando.lugar_predeterminado_id || null,
-      orden_ruta: solicitudEditando.orden_ruta === "" ? null : Number(solicitudEditando.orden_ruta),
       updated_at: new Date().toISOString(),
     };
 
@@ -570,35 +568,12 @@ function App() {
     else await cargarSolicitudes();
   }
 
-  async function cambiarOrden(id, nuevoOrden) {
-    const orden = nuevoOrden === "" ? null : Number(nuevoOrden);
-
-    const { error } = await supabase
-      .from("solicitudes")
-      .update({ orden_ruta: orden, updated_at: new Date().toISOString() })
-      .eq("id", id);
-
-    if (error) alert("Error cambiando orden: " + error.message);
-    else await cargarSolicitudes();
-  }
-
-  async function moverEnRuta(id, direccionMovimiento, rutaActual) {
-    const index = rutaActual.findIndex((s) => s.id === id);
-    if (index === -1) return;
-
-    const nuevoIndex = direccionMovimiento === "subir" ? index - 1 : index + 1;
-    if (nuevoIndex < 0 || nuevoIndex >= rutaActual.length) return;
-
-    const nuevaRuta = [...rutaActual];
-    const temp = nuevaRuta[index];
-    nuevaRuta[index] = nuevaRuta[nuevoIndex];
-    nuevaRuta[nuevoIndex] = temp;
-
-    const updates = nuevaRuta.map((solicitud, i) =>
+  async function guardarOrdenRuta(nuevaRuta) {
+    const updates = nuevaRuta.map((solicitud, index) =>
       supabase
         .from("solicitudes")
         .update({
-          orden_ruta: i + 1,
+          orden_ruta: index + 1,
           updated_at: new Date().toISOString(),
         })
         .eq("id", solicitud.id)
@@ -608,7 +583,33 @@ function App() {
     const error = results.find((r) => r.error)?.error;
 
     if (error) {
-      alert("Error reordenando la ruta: " + error.message);
+      alert("Error guardando el orden de la ruta: " + error.message);
+      await cargarSolicitudes();
+      return;
+    }
+
+    await cargarSolicitudes();
+  }
+
+  async function resetearOrdenRuta(rutaActual) {
+    const confirmar = window.confirm("¿Querés restablecer el orden automático de la ruta?");
+    if (!confirmar) return;
+
+    const updates = rutaActual.map((solicitud) =>
+      supabase
+        .from("solicitudes")
+        .update({
+          orden_ruta: null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", solicitud.id)
+    );
+
+    const results = await Promise.all(updates);
+    const error = results.find((r) => r.error)?.error;
+
+    if (error) {
+      alert("Error restableciendo el orden: " + error.message);
       return;
     }
 
@@ -806,7 +807,6 @@ function App() {
                 diasSemana={diasSemana}
                 solicitudesSemana={solicitudesSemana}
                 cambiarFecha={cambiarFecha}
-                cambiarOrden={cambiarOrden}
                 empezarEdicion={empezarEdicion}
                 marcar={marcar}
               />
@@ -818,8 +818,8 @@ function App() {
                 setFechaFiltro={setFechaFiltro}
                 ruta={ruta}
                 whatsappText={whatsappText}
-                cambiarOrden={cambiarOrden}
-                moverEnRuta={moverEnRuta}
+                guardarOrdenRuta={guardarOrdenRuta}
+                resetearOrdenRuta={resetearOrdenRuta}
                 empezarEdicion={empezarEdicion}
                 marcar={marcar}
               />
@@ -1066,10 +1066,6 @@ function EditorSolicitud({ solicitudEditando, setSolicitudEditando, lugares, ele
           <textarea value={solicitudEditando.detalle || ""} onChange={(e) => setSolicitudEditando({ ...solicitudEditando, detalle: e.target.value })} />
         </Field>
 
-        <Field label="Orden de ruta">
-          <input type="number" min="1" value={solicitudEditando.orden_ruta || ""} onChange={(e) => setSolicitudEditando({ ...solicitudEditando, orden_ruta: e.target.value })} />
-        </Field>
-
         <div className="actions">
           <Button type="submit" variant="success">Guardar cambios</Button>
           <Button type="button" variant="outline" onClick={() => setSolicitudEditando(null)}>Cancelar</Button>
@@ -1080,7 +1076,7 @@ function EditorSolicitud({ solicitudEditando, setSolicitudEditando, lugares, ele
   );
 }
 
-function SemanaView({ semanaInicio, setSemanaInicio, diasSemana, solicitudesSemana, cambiarFecha, cambiarOrden, empezarEdicion, marcar }) {
+function SemanaView({ semanaInicio, setSemanaInicio, diasSemana, solicitudesSemana, cambiarFecha, empezarEdicion, marcar }) {
   return (
     <section className="card">
       <div className="topline">
@@ -1111,10 +1107,6 @@ function SemanaView({ semanaInicio, setSemanaInicio, diasSemana, solicitudesSema
                       <input type="date" value={s.fecha} onChange={(e) => cambiarFecha(s.id, e.target.value)} />
                     </Field>
 
-                    <Field label="Orden">
-                      <input type="number" min="1" value={s.orden_ruta || ""} onChange={(e) => cambiarOrden(s.id, e.target.value)} />
-                    </Field>
-
                     <Button variant="outline" onClick={() => empezarEdicion(s)}>Editar</Button>
                     <Button variant="success" onClick={() => marcar(s.id, true)}>Entregado</Button>
                     <Button variant="danger" onClick={() => marcar(s.id, false)}>No entregado</Button>
@@ -1134,18 +1126,43 @@ function TransportistaView({
   setFechaFiltro,
   ruta,
   whatsappText,
-  cambiarOrden,
-  moverEnRuta,
+  guardarOrdenRuta,
+  resetearOrdenRuta,
   empezarEdicion,
   marcar,
 }) {
+  const [rutaLocal, setRutaLocal] = useState(ruta);
+  const [guardandoOrden, setGuardandoOrden] = useState(false);
+
+  useEffect(() => {
+    setRutaLocal(ruta);
+  }, [ruta]);
+
+  async function moverItem(index, direccion) {
+    const nuevoIndex = direccion === "subir" ? index - 1 : index + 1;
+    if (nuevoIndex < 0 || nuevoIndex >= rutaLocal.length) return;
+
+    const nuevaRuta = [...rutaLocal];
+    const item = nuevaRuta[index];
+
+    nuevaRuta.splice(index, 1);
+    nuevaRuta.splice(nuevoIndex, 0, item);
+
+    setRutaLocal(nuevaRuta);
+    setGuardandoOrden(true);
+
+    await guardarOrdenRuta(nuevaRuta);
+
+    setGuardandoOrden(false);
+  }
+
   return (
     <section className="card">
       <div className="topline">
         <div>
           <p className="eyebrow">Transportista</p>
           <h2>Ruta del transportista</h2>
-          <p className="muted">Puede acomodar manualmente el orden de la ruta según le convenga.</p>
+          <p className="muted">Puede acomodar manualmente el orden de la ruta con Subir y Bajar.</p>
         </div>
 
         <div className="actions">
@@ -1155,6 +1172,10 @@ function TransportistaView({
 
           <Button variant="outline" type="button" onClick={() => setFechaFiltro("")}>Ver todas</Button>
 
+          <Button variant="outline" type="button" onClick={() => resetearOrdenRuta(rutaLocal)}>
+            Restablecer orden
+          </Button>
+
           <a href={`https://wa.me/?text=${whatsappText}`} target="_blank" rel="noreferrer">
             <Button>WhatsApp</Button>
           </a>
@@ -1162,13 +1183,14 @@ function TransportistaView({
       </div>
 
       <p className="notice">
-        Las órdenes se pueden mover con Subir/Bajar o escribiendo un número en Orden. Cuando se marca Entregado, pasa al Historial.
+        El cambio de orden se ve al instante y luego se guarda. Cuando una orden se marca como Entregado, pasa al Historial.
+        {guardandoOrden ? " Guardando orden..." : ""}
       </p>
 
       <div className="list">
-        {ruta.length === 0 && <p className="muted">No quedan paradas pendientes para mostrar.</p>}
+        {rutaLocal.length === 0 && <p className="muted">No quedan paradas pendientes para mostrar.</p>}
 
-        {ruta.map((s, i) => (
+        {rutaLocal.map((s, i) => (
           <div key={s.id} className="route-item">
             <div className="route-number">{i + 1}</div>
 
@@ -1178,7 +1200,7 @@ function TransportistaView({
                   variant="outline"
                   type="button"
                   disabled={i === 0}
-                  onClick={() => moverEnRuta(s.id, "subir", ruta)}
+                  onClick={() => moverItem(i, "subir")}
                 >
                   Subir
                 </Button>
@@ -1186,8 +1208,8 @@ function TransportistaView({
                 <Button
                   variant="outline"
                   type="button"
-                  disabled={i === ruta.length - 1}
-                  onClick={() => moverEnRuta(s.id, "bajar", ruta)}
+                  disabled={i === rutaLocal.length - 1}
+                  onClick={() => moverItem(i, "bajar")}
                 >
                   Bajar
                 </Button>
@@ -1196,10 +1218,6 @@ function TransportistaView({
               <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(s.direccion)}`} target="_blank" rel="noreferrer">
                 <Button variant="outline">Abrir Maps</Button>
               </a>
-
-              <Field label="Orden">
-                <input type="number" min="1" value={s.orden_ruta || ""} onChange={(e) => cambiarOrden(s.id, e.target.value)} />
-              </Field>
 
               <Button variant="outline" onClick={() => empezarEdicion(s)}>Editar</Button>
               <Button variant="success" onClick={() => marcar(s.id, true)}>Entregado</Button>
@@ -1444,7 +1462,6 @@ function SolicitudCard({ s, children }) {
           <Badge entregado={s.entregado} />
 
           {s.prioridad === "Urgente" && <span className="badge urgent">Urgente</span>}
-          {s.orden_ruta && <span className="badge pending">Orden {s.orden_ruta}</span>}
         </div>
 
         <p>{s.direccion}</p>

@@ -350,3 +350,279 @@ a {
   color: #333;
   white-space: pre-wrap;
 }
+/* --- Transiciones suaves generales --- */
+
+.btn {
+  transition: transform 0.12s ease, box-shadow 0.15s ease, opacity 0.15s ease;
+}
+
+.btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.btn:active:not(:disabled) {
+  transform: translateY(0) scale(0.98);
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  outline: 2px solid #2563eb;
+  outline-offset: 1px;
+}
+
+/* --- Tarjetas de solicitud --- */
+
+.request {
+  transition: box-shadow 0.18s ease, transform 0.18s ease;
+  animation: aparecer 0.25s ease;
+}
+
+.request:hover {
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
+  transform: translateY(-1px);
+}
+
+.request.urgente {
+  border-left: 4px solid #dc2626;
+}
+
+@keyframes aparecer {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* --- Indicador "en vivo" del encabezado --- */
+
+.live-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 0.82rem;
+  opacity: 0.85;
+  margin-top: 8px;
+}
+
+.live-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #22c55e;
+  display: inline-block;
+  animation: latido 1.8s ease-in-out infinite;
+}
+
+@keyframes latido {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.55);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(34, 197, 94, 0);
+  }
+}
+
+.link-refresh {
+  background: none;
+  border: none;
+  color: #2563eb;
+  cursor: pointer;
+  font-size: 0.82rem;
+  text-decoration: underline;
+  padding: 0;
+}
+
+.link-refresh:hover {
+  opacity: 0.75;
+}
+
+/* --- Contador en pestañas y títulos --- */
+
+.tab-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  margin-left: 7px;
+  border-radius: 999px;
+  background: #dc2626;
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 700;
+  vertical-align: middle;
+}
+
+.dia-titulo {
+  display: flex;
+  align-items: center;
+}
+
+/* --- Optimizador de ruta --- */
+
+.optimizador {
+  border: 1px dashed rgba(37, 99, 235, 0.45);
+  background: rgba(37, 99, 235, 0.05);
+}
+
+.optimizador-fila {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-end;
+}
+
+.optimizador-fila .field {
+  flex: 1;
+  min-width: 240px;
+}
+
+.optimizando {
+  margin-top: 12px;
+}
+
+.progress {
+  width: 100%;
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.12);
+  overflow: hidden;
+  margin-top: 6px;
+}
+
+.progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #2563eb, #22c55e);
+  transition: width 0.4s ease;
+}
+
+/* --- Avisos flotantes (toasts) --- */
+
+.toasts {
+  position: fixed;
+  bottom: 18px;
+  right: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  z-index: 9999;
+  max-width: min(360px, calc(100vw - 36px));
+}
+
+.toast {
+  padding: 12px 16px;
+  border-radius: 12px;
+  color: #fff;
+  font-size: 0.9rem;
+  line-height: 1.35;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
+  animation: toast-entrada 0.28s ease;
+}
+
+.toast.ok {
+  background: #16a34a;
+}
+
+.toast.error {
+  background: #dc2626;
+}
+
+@keyframes toast-entrada {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* --- Estados vacíos y carga --- */
+
+.empty-state {
+  text-align: center;
+  padding: 28px 16px;
+  border: 1px dashed rgba(0, 0, 0, 0.2);
+  border-radius: 12px;
+  opacity: 0.75;
+}
+
+.loading-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.spinner {
+  width: 18px;
+  height: 18px;
+  border: 3px solid rgba(37, 99, 235, 0.25);
+  border-top-color: #2563eb;
+  border-radius: 50%;
+  display: inline-block;
+  animation: girar 0.8s linear infinite;
+}
+
+@keyframes girar {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* --- Editor destacado --- */
+
+.editor-card {
+  border: 2px solid #2563eb;
+}
+
+/* --- Número de parada más visible --- */
+
+.route-number {
+  background: linear-gradient(135deg, #2563eb, #1e40af);
+  color: #fff;
+  font-weight: 700;
+  box-shadow: 0 3px 10px rgba(37, 99, 235, 0.35);
+}
+
+/* --- Celular: botones y filas se acomodan mejor --- */
+
+@media (max-width: 640px) {
+  .actions {
+    flex-wrap: wrap;
+  }
+
+  .actions .btn,
+  .actions a {
+    flex: 1;
+    min-width: 130px;
+  }
+
+  .actions a .btn {
+    width: 100%;
+  }
+
+  .optimizador-fila {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .toasts {
+    left: 18px;
+    right: 18px;
+    max-width: none;
+  }
+}

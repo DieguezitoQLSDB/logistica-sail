@@ -12,6 +12,8 @@ const tipos = ["Entrega", "Retira", "Entrega y Retira"];
 const prioridades = ["Normal", "Urgente"];
 const horarios = ["Flexible", "Antes de una hora", "Entre dos horarios", "Horario exacto"];
 
+const REFRESCO_MS = 60000;
+
 function generarOpcionesHorario() {
   const opciones = [];
   for (let hora = 8; hora <= 18; hora++) {
@@ -140,6 +142,84 @@ function getNombreLugar(solicitud, lugares) {
   return lugar?.nombre || solicitud.contacto || "Sin nombre";
 }
 
+// ---------- Geolocalización y optimización de ruta (OpenStreetMap, gratis) ----------
+
+const GEO_CACHE_KEY = "sail_geo_cache_v1";
+
+function leerCacheGeo() {
+  try {
+    return JSON.parse(localStorage.getItem(GEO_CACHE_KEY)) || {};
+  } catch {
+    return {};
+  }
+}
+
+function guardarCacheGeo(cache) {
+  try {
+    localStorage.setItem(GEO_CACHE_KEY, JSON.stringify(cache));
+  } catch {
+    // sin espacio o modo privado: seguimos sin cache
+  }
+}
+
+let ultimaConsultaGeo = 0;
+
+async function geocodificar(direccion) {
+  const clave = String(direccion || "").trim().toLowerCase();
+  if (!clave) return null;
+
+  const cache = leerCacheGeo();
+  if (cache[clave]) return cache[clave];
+
+  // Nominatim pide máximo 1 consulta por segundo
+  const espera = Math.max(0, ultimaConsultaGeo + 1100 - Date.now());
+  if (espera > 0) await new Promise((r) => setTimeout(r, espera));
+  ultimaConsultaGeo = Date.now();
+
+  const textoBusqueda = /argentina/i.test(direccion)
+    ? direccion
+    : `${direccion}, Buenos Aires, Argentina`;
+
+  try {
+    const resp = await fetch(
+      `https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=ar&q=${encodeURIComponent(textoBusqueda)}`
+    );
+    const data = await resp.json();
+    if (!data || !data[0]) return null;
+
+    const punto = { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) };
+    cache[clave] = punto;
+    guardarCacheGeo(cache);
+    return punto;
+  } catch {
+    return null;
+  }
+}
+
+function distanciaKm(a, b) {
+  const radioTierra = 6371;
+  const dLat = ((b.lat - a.lat) * Math.PI) / 180;
+  const dLon = ((b.lon - a.lon) * Math.PI) / 180;
+  const lat1 = (a.lat * Math.PI) / 180;
+  const lat2 = (b.lat * Math.PI) / 180;
+
+  const h =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+
+  return 2 * radioTierra * Math.asin(Math.sqrt(h));
+}
+
+function urlRutaCompletaMaps(rutaActual, puntoPartida) {
+  const direcciones = [];
+  if (puntoPartida && puntoPartida.trim()) direcciones.push(puntoPartida.trim());
+  rutaActual.forEach((s) => direcciones.push(s.direccion));
+  // Google Maps acepta hasta ~10 puntos en la URL
+  return "https://www.google.com/maps/dir/" + direcciones.slice(0, 10).map(encodeURIComponent).join("/");
+}
+
+// ---------- Componentes chicos ----------
+
 function Button({ children, variant = "primary", ...props }) {
   return (
     <button className={`btn ${variant}`} {...props}>
@@ -226,6 +306,9 @@ function App() {
   const [semanaInicio, setSemanaInicio] = useState(getMonday());
   const [solicitudEditando, setSolicitudEditando] = useState(null);
   const [lugarEditando, setLugarEditando] = useState(null);
+  const [toasts, setToasts] = useState([]);
+  const [ultimaActualizacion, setUltimaActualizacion] = useState("");
+  const [optimizando, setOptimizando] = useState(null);
 
   const [nuevoLugar, setNuevoLugar] = useState({
     nombre: "",
@@ -252,7 +335,21 @@ function App() {
     lugar_predeterminado_id: "",
   });
 
-  async function cargarSolicitudes() {
+  function avisar(mensaje, tipo = "ok") {
+    const id = Date.now() + Math.random();
+    setToasts((prev) => [...prev, { id, mensaje, tipo }]);
+    setTimeout(() => {
+      setToasts((prev) => prev.filter((t) => t.id !== id));
+    }, 4500);
+  }
+
+  function marcarActualizado() {
+    setUltimaActualizacion(
+      new Date().toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })
+    );
+  }
+
+  async function cargarSolicitudes(silencioso = false) {
     const { data, error } = await supabase
       .from("solicitudes")
       .select("*")
@@ -260,29 +357,57 @@ function App() {
       .order("orden_ruta", { ascending: true, nullsFirst: false })
       .order("created_at", { ascending: false });
 
-    if (error) alert("Error cargando solicitudes: " + error.message);
-    else setSolicitudes(data || []);
+    if (error) {
+      if (!silencioso) avisar("Error cargando solicitudes: " + error.message, "error");
+    } else {
+      setSolicitudes(data || []);
+    }
   }
 
-  async function cargarLugares() {
+  async function cargarLugares(silencioso = false) {
     const { data, error } = await supabase
       .from("lugares_predeterminados")
       .select("*")
       .eq("activo", true)
       .order("nombre", { ascending: true });
 
-    if (error) alert("Error cargando lugares predeterminados: " + error.message);
-    else setLugares(data || []);
+    if (error) {
+      if (!silencioso) avisar("Error cargando lugares predeterminados: " + error.message, "error");
+    } else {
+      setLugares(data || []);
+    }
+  }
+
+  async function refrescar(silencioso = true) {
+    await Promise.all([cargarSolicitudes(silencioso), cargarLugares(silencioso)]);
+    marcarActualizado();
   }
 
   async function cargarTodo() {
     setLoading(true);
-    await Promise.all([cargarSolicitudes(), cargarLugares()]);
+    await refrescar(false);
     setLoading(false);
   }
 
   useEffect(() => {
     cargarTodo();
+
+    const intervalo = setInterval(() => {
+      refrescar(true);
+    }, REFRESCO_MS);
+
+    const alVolver = () => {
+      if (document.visibilityState === "visible") refrescar(true);
+    };
+
+    window.addEventListener("focus", alVolver);
+    document.addEventListener("visibilitychange", alVolver);
+
+    return () => {
+      clearInterval(intervalo);
+      window.removeEventListener("focus", alVolver);
+      document.removeEventListener("visibilitychange", alVolver);
+    };
   }, []);
 
   function elegirLugar(id) {
@@ -336,19 +461,19 @@ function App() {
     });
 
     if (error) {
-      alert("Error guardando lugar predeterminado: " + error.message);
+      avisar("Error guardando lugar predeterminado: " + error.message, "error");
       return;
     }
 
     await cargarLugares();
-    alert("Lugar guardado como predeterminado.");
+    avisar("Lugar guardado como predeterminado.");
   }
 
   async function crearLugarManual(e) {
     e.preventDefault();
 
     if (!nuevoLugar.nombre.trim() || !nuevoLugar.direccion.trim()) {
-      alert("Completá como mínimo nombre del lugar y dirección completa.");
+      avisar("Completá como mínimo nombre del lugar y dirección completa.", "error");
       return;
     }
 
@@ -363,7 +488,7 @@ function App() {
     });
 
     if (error) {
-      alert("Error guardando lugar predeterminado: " + error.message);
+      avisar("Error guardando lugar predeterminado: " + error.message, "error");
       return;
     }
 
@@ -375,7 +500,7 @@ function App() {
     });
 
     await cargarLugares();
-    alert("Lugar predeterminado creado.");
+    avisar("Lugar predeterminado creado.");
   }
 
   function validarSolicitud(item) {
@@ -388,22 +513,22 @@ function App() {
       !item.contacto.trim() ||
       !item.telefono.trim()
     ) {
-      alert("Completá todos los campos obligatorios marcados con *.");
+      avisar("Completá todos los campos obligatorios marcados con *.", "error");
       return false;
     }
 
     if (requiereLleva(item.tipo_tarea) && !item.lleva.trim()) {
-      alert("Completá el campo Qué lleva.");
+      avisar("Completá el campo Qué lleva.", "error");
       return false;
     }
 
     if (requiereTrae(item.tipo_tarea) && !item.trae.trim()) {
-      alert("Completá el campo Qué trae.");
+      avisar("Completá el campo Qué trae.", "error");
       return false;
     }
 
     if (!isHorarioCompleto(item)) {
-      alert("Completá correctamente el horario.");
+      avisar("Completá correctamente el horario.", "error");
       return false;
     }
 
@@ -435,7 +560,7 @@ function App() {
     const { error } = await supabase.from("solicitudes").insert(payload);
 
     if (error) {
-      alert("Error guardando solicitud: " + error.message);
+      avisar("Error guardando solicitud: " + error.message, "error");
       return;
     }
 
@@ -444,8 +569,9 @@ function App() {
     if (!form.lugar_predeterminado_id) {
       const quiereGuardar = window.confirm("Solicitud cargada. ¿Querés guardar esta dirección como lugar predeterminado?");
       if (quiereGuardar) await guardarLugarPredeterminado(payload);
+      else avisar("Solicitud cargada.");
     } else {
-      alert("Solicitud cargada.");
+      avisar("Solicitud cargada.");
     }
 
     setForm({
@@ -505,13 +631,13 @@ function App() {
     const { error } = await supabase.from("solicitudes").update(payload).eq("id", solicitudEditando.id);
 
     if (error) {
-      alert("Error guardando cambios: " + error.message);
+      avisar("Error guardando cambios: " + error.message, "error");
       return;
     }
 
     setSolicitudEditando(null);
     await cargarSolicitudes();
-    alert("Solicitud actualizada.");
+    avisar("Solicitud actualizada.");
   }
 
   async function eliminarSolicitud(id) {
@@ -521,13 +647,13 @@ function App() {
     const { error } = await supabase.from("solicitudes").delete().eq("id", id);
 
     if (error) {
-      alert("Error eliminando solicitud: " + error.message);
+      avisar("Error eliminando solicitud: " + error.message, "error");
       return;
     }
 
     setSolicitudEditando(null);
     await cargarSolicitudes();
-    alert("Solicitud eliminada.");
+    avisar("Solicitud eliminada.");
   }
 
   async function marcar(id, value) {
@@ -536,8 +662,12 @@ function App() {
       .update({ entregado: value, updated_at: new Date().toISOString() })
       .eq("id", id);
 
-    if (error) alert("Error actualizando solicitud: " + error.message);
-    else await cargarSolicitudes();
+    if (error) {
+      avisar("Error actualizando solicitud: " + error.message, "error");
+    } else {
+      await cargarSolicitudes();
+      avisar(value === true ? "Marcada como entregada." : "Marcada como no entregada.");
+    }
   }
 
   async function volverAPendiente(id) {
@@ -550,12 +680,12 @@ function App() {
       .eq("id", id);
 
     if (error) {
-      alert("Error volviendo la solicitud a pendiente: " + error.message);
+      avisar("Error volviendo la solicitud a pendiente: " + error.message, "error");
       return;
     }
 
     await cargarSolicitudes();
-    alert("Solicitud vuelta a pendiente.");
+    avisar("Solicitud vuelta a pendiente.");
   }
 
   async function cambiarFecha(id, nuevaFecha) {
@@ -564,11 +694,11 @@ function App() {
       .update({ fecha: nuevaFecha, updated_at: new Date().toISOString() })
       .eq("id", id);
 
-    if (error) alert("Error cambiando fecha: " + error.message);
+    if (error) avisar("Error cambiando fecha: " + error.message, "error");
     else await cargarSolicitudes();
   }
 
-  async function guardarOrdenRuta(nuevaRuta) {
+  async function guardarOrdenRuta(nuevaRuta, avisarAlTerminar = false) {
     const updates = nuevaRuta.map((solicitud, index) =>
       supabase
         .from("solicitudes")
@@ -583,12 +713,13 @@ function App() {
     const error = results.find((r) => r.error)?.error;
 
     if (error) {
-      alert("Error guardando el orden de la ruta: " + error.message);
+      avisar("Error guardando el orden de la ruta: " + error.message, "error");
       await cargarSolicitudes();
       return;
     }
 
     await cargarSolicitudes();
+    if (avisarAlTerminar) avisar("Orden de ruta guardado.");
   }
 
   async function resetearOrdenRuta(rutaActual) {
@@ -609,16 +740,88 @@ function App() {
     const error = results.find((r) => r.error)?.error;
 
     if (error) {
-      alert("Error restableciendo el orden: " + error.message);
+      avisar("Error restableciendo el orden: " + error.message, "error");
       return;
     }
 
     await cargarSolicitudes();
+    avisar("Orden restablecido.");
+  }
+
+  async function optimizarRuta(rutaActual, puntoPartida) {
+    if (rutaActual.length < 2) {
+      avisar("Se necesitan al menos 2 paradas pendientes para optimizar la ruta.", "error");
+      return;
+    }
+
+    setOptimizando({ actual: 0, total: rutaActual.length });
+
+    const puntos = {};
+    const sinUbicar = [];
+
+    let base = null;
+    if (puntoPartida && puntoPartida.trim()) {
+      base = await geocodificar(puntoPartida.trim());
+    }
+
+    let procesadas = 0;
+    for (const s of rutaActual) {
+      const punto = await geocodificar(s.direccion);
+      procesadas++;
+      setOptimizando({ actual: procesadas, total: rutaActual.length });
+
+      if (punto) puntos[s.id] = punto;
+      else sinUbicar.push(s);
+    }
+
+    // Se optimiza dentro de cada fecha, manteniendo el orden de fechas.
+    // Algoritmo del vecino más cercano: desde el punto de partida, siempre
+    // la parada más cercana a la anterior.
+    const fechas = [...new Set(rutaActual.map((s) => s.fecha))].sort();
+    const ordenFinal = [];
+    let posicionActual = base;
+
+    for (const fecha of fechas) {
+      const restantes = rutaActual.filter((s) => s.fecha === fecha && puntos[s.id]);
+
+      while (restantes.length > 0) {
+        let mejorIdx = 0;
+
+        if (posicionActual) {
+          let mejorDist = Infinity;
+          restantes.forEach((s, idx) => {
+            const d = distanciaKm(posicionActual, puntos[s.id]);
+            if (d < mejorDist) {
+              mejorDist = d;
+              mejorIdx = idx;
+            }
+          });
+        }
+
+        const elegida = restantes.splice(mejorIdx, 1)[0];
+        ordenFinal.push(elegida);
+        posicionActual = puntos[elegida.id];
+      }
+
+      ordenFinal.push(...rutaActual.filter((s) => s.fecha === fecha && !puntos[s.id]));
+    }
+
+    setOptimizando(null);
+    await guardarOrdenRuta(ordenFinal);
+
+    if (sinUbicar.length > 0) {
+      avisar(
+        `Ruta optimizada. ${sinUbicar.length} dirección(es) no se pudieron ubicar en el mapa y quedaron al final. Revisá que estén bien escritas.`,
+        "error"
+      );
+    } else {
+      avisar("Ruta optimizada por cercanía. El orden nuevo ya está guardado.");
+    }
   }
 
   async function actualizarLugar(lugar) {
     if (!lugar.nombre.trim() || !lugar.direccion.trim()) {
-      alert("Nombre y dirección son obligatorios.");
+      avisar("Nombre y dirección son obligatorios.", "error");
       return;
     }
 
@@ -636,13 +839,13 @@ function App() {
       .eq("id", lugar.id);
 
     if (error) {
-      alert("Error actualizando lugar: " + error.message);
+      avisar("Error actualizando lugar: " + error.message, "error");
       return;
     }
 
     setLugarEditando(null);
     await cargarLugares();
-    alert("Lugar actualizado.");
+    avisar("Lugar actualizado.");
   }
 
   async function desactivarLugar(id) {
@@ -654,8 +857,11 @@ function App() {
       .update({ activo: false, updated_at: new Date().toISOString() })
       .eq("id", id);
 
-    if (error) alert("Error desactivando lugar: " + error.message);
-    else await cargarLugares();
+    if (error) avisar("Error desactivando lugar: " + error.message, "error");
+    else {
+      await cargarLugares();
+      avisar("Lugar desactivado.");
+    }
   }
 
   const solicitudesVisibles = useMemo(() => {
@@ -738,6 +944,11 @@ function App() {
     urgentes: solicitudesVisibles.filter((s) => s.prioridad === "Urgente" && s.entregado !== true).length,
   }), [solicitudesVisibles]);
 
+  const pendientesTotal = useMemo(
+    () => solicitudes.filter((s) => s.entregado === null).length,
+    [solicitudes]
+  );
+
   const whatsappText = encodeURIComponent(
     `Transportista, ruta sugerida de Logística Sail${fechaFiltro ? ` para ${formatDateAR(fechaFiltro)}` : ""}:\n\n${ruta
       .map(
@@ -755,6 +966,15 @@ function App() {
             <p className="eyebrow">logisticasail.com</p>
             <h1>Logística Sail</h1>
             <p className="subtitle">Solicitudes internas, coordinación de paradas y ruta operativa para transportistas.</p>
+
+            <p className="live-indicator">
+              <span className="live-dot" />
+              Actualización automática cada 1 minuto
+              {ultimaActualizacion ? ` · Últ. actualización ${ultimaActualizacion}` : ""}
+              <button className="link-refresh" type="button" onClick={() => refrescar(false)}>
+                Actualizar ahora
+              </button>
+            </p>
           </div>
 
           <div className="stats">
@@ -780,14 +1000,18 @@ function App() {
         <nav className="tabs">
           <Button variant={tab === "empleado" ? "primary" : "outline"} onClick={() => setTab("empleado")}>Empleado</Button>
           <Button variant={tab === "semana" ? "primary" : "outline"} onClick={() => setTab("semana")}>Semana</Button>
-          <Button variant={tab === "transportista" ? "primary" : "outline"} onClick={() => setTab("transportista")}>Transportista</Button>
+          <Button variant={tab === "transportista" ? "primary" : "outline"} onClick={() => setTab("transportista")}>
+            Transportista{pendientesTotal > 0 && <span className="tab-count">{pendientesTotal}</span>}
+          </Button>
           <Button variant={tab === "resumen" ? "primary" : "outline"} onClick={() => setTab("resumen")}>Resumen carga</Button>
           <Button variant={tab === "historial" ? "primary" : "outline"} onClick={() => setTab("historial")}>Historial</Button>
           <Button variant={tab === "lugares" ? "primary" : "outline"} onClick={() => setTab("lugares")}>Lugares</Button>
         </nav>
 
         {loading ? (
-          <div className="card">Cargando solicitudes...</div>
+          <div className="card loading-card">
+            <span className="spinner" /> Cargando solicitudes...
+          </div>
         ) : (
           <>
             {tab === "empleado" && (
@@ -809,6 +1033,7 @@ function App() {
                 cambiarFecha={cambiarFecha}
                 empezarEdicion={empezarEdicion}
                 marcar={marcar}
+                lugares={lugares}
               />
             )}
 
@@ -820,8 +1045,11 @@ function App() {
                 whatsappText={whatsappText}
                 guardarOrdenRuta={guardarOrdenRuta}
                 resetearOrdenRuta={resetearOrdenRuta}
+                optimizarRuta={optimizarRuta}
+                optimizando={optimizando}
                 empezarEdicion={empezarEdicion}
                 marcar={marcar}
+                lugares={lugares}
               />
             )}
 
@@ -834,6 +1062,7 @@ function App() {
                 historial={historial}
                 volverAPendiente={volverAPendiente}
                 empezarEdicion={empezarEdicion}
+                lugares={lugares}
               />
             )}
 
@@ -851,6 +1080,14 @@ function App() {
             )}
           </>
         )}
+      </div>
+
+      <div className="toasts">
+        {toasts.map((t) => (
+          <div key={t.id} className={`toast ${t.tipo}`}>
+            {t.mensaje}
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -971,7 +1208,7 @@ function EmpleadoForm({ form, setForm, lugares, elegirLugar, crearSolicitud }) {
 
 function EditorSolicitud({ solicitudEditando, setSolicitudEditando, lugares, elegirLugarEdicion, guardarCambiosSolicitud, eliminarSolicitud }) {
   return (
-    <section className="card">
+    <section className="card editor-card">
       <p className="eyebrow">Editar solicitud</p>
       <h2>Modificar o eliminar solicitud</h2>
 
@@ -1076,7 +1313,7 @@ function EditorSolicitud({ solicitudEditando, setSolicitudEditando, lugares, ele
   );
 }
 
-function SemanaView({ semanaInicio, setSemanaInicio, diasSemana, solicitudesSemana, cambiarFecha, empezarEdicion, marcar }) {
+function SemanaView({ semanaInicio, setSemanaInicio, diasSemana, solicitudesSemana, cambiarFecha, empezarEdicion, marcar, lugares }) {
   return (
     <section className="card">
       <div className="topline">
@@ -1096,13 +1333,16 @@ function SemanaView({ semanaInicio, setSemanaInicio, diasSemana, solicitudesSema
           const items = solicitudesSemana.filter((s) => s.fecha === dia);
 
           return (
-            <div key={dia} className="card">
-              <h2>{formatDateLabel(dia)}</h2>
+            <div key={dia} className="card dia-card">
+              <h2 className="dia-titulo">
+                {formatDateLabel(dia)}
+                {items.length > 0 && <span className="tab-count">{items.length}</span>}
+              </h2>
               {items.length === 0 && <p className="muted">Sin solicitudes.</p>}
 
               <div className="list">
                 {items.map((s) => (
-                  <SolicitudCard key={s.id} s={s}>
+                  <SolicitudCard key={s.id} s={s} lugares={lugares}>
                     <Field label="Mover a fecha">
                       <input type="date" value={s.fecha} onChange={(e) => cambiarFecha(s.id, e.target.value)} />
                     </Field>
@@ -1128,11 +1368,31 @@ function TransportistaView({
   whatsappText,
   guardarOrdenRuta,
   resetearOrdenRuta,
+  optimizarRuta,
+  optimizando,
   empezarEdicion,
   marcar,
+  lugares,
 }) {
   const [rutaLocal, setRutaLocal] = useState(ruta);
   const [guardandoOrden, setGuardandoOrden] = useState(false);
+
+  const [puntoPartida, setPuntoPartida] = useState(() => {
+    try {
+      return localStorage.getItem("sail_punto_partida") || "";
+    } catch {
+      return "";
+    }
+  });
+
+  function cambiarPuntoPartida(valor) {
+    setPuntoPartida(valor);
+    try {
+      localStorage.setItem("sail_punto_partida", valor);
+    } catch {
+      // sin storage disponible: solo dura la sesión
+    }
+  }
 
   useEffect(() => {
     setRutaLocal(ruta);
@@ -1156,13 +1416,17 @@ function TransportistaView({
     setGuardandoOrden(false);
   }
 
+  const hayParadas = rutaLocal.length > 0;
+
   return (
     <section className="card">
       <div className="topline">
         <div>
           <p className="eyebrow">Transportista</p>
           <h2>Ruta del transportista</h2>
-          <p className="muted">Puede acomodar manualmente el orden de la ruta con Subir y Bajar.</p>
+          <p className="muted">
+            Podés optimizar la ruta automáticamente por cercanía, o acomodarla a mano con Subir y Bajar.
+          </p>
         </div>
 
         <div className="actions">
@@ -1170,16 +1434,65 @@ function TransportistaView({
             <input type="date" value={fechaFiltro} onChange={(e) => setFechaFiltro(e.target.value)} />
           </Field>
 
+          <Button variant="outline" type="button" onClick={() => setFechaFiltro(getToday())}>Hoy</Button>
           <Button variant="outline" type="button" onClick={() => setFechaFiltro("")}>Ver todas</Button>
-
-          <Button variant="outline" type="button" onClick={() => resetearOrdenRuta(rutaLocal)}>
-            Restablecer orden
-          </Button>
-
-          <a href={`https://wa.me/?text=${whatsappText}`} target="_blank" rel="noreferrer">
-            <Button>WhatsApp</Button>
-          </a>
         </div>
+      </div>
+
+      <div className="card optimizador">
+        <h2>Ruta óptima automática</h2>
+        <p className="muted">
+          Escribí desde dónde arranca el transportista (depósito u oficina) y apretá Optimizar:
+          la app ubica cada dirección en el mapa y arma el recorrido más corto, parada por parada.
+        </p>
+
+        <div className="optimizador-fila">
+          <Field label="Punto de partida (se guarda para la próxima)">
+            <input
+              placeholder="Ej: Arcos 2140, Belgrano, CABA"
+              value={puntoPartida}
+              onChange={(e) => cambiarPuntoPartida(e.target.value)}
+            />
+          </Field>
+
+          <div className="actions">
+            <Button
+              type="button"
+              disabled={Boolean(optimizando) || !hayParadas}
+              onClick={() => optimizarRuta(rutaLocal, puntoPartida)}
+            >
+              {optimizando ? "Optimizando..." : "Optimizar ruta"}
+            </Button>
+
+            {hayParadas && (
+              <a href={urlRutaCompletaMaps(rutaLocal, puntoPartida)} target="_blank" rel="noreferrer">
+                <Button variant="outline" type="button">Ver recorrido en Maps</Button>
+              </a>
+            )}
+
+            <Button variant="outline" type="button" onClick={() => resetearOrdenRuta(rutaLocal)}>
+              Restablecer orden
+            </Button>
+
+            <a href={`https://wa.me/?text=${whatsappText}`} target="_blank" rel="noreferrer">
+              <Button type="button">WhatsApp</Button>
+            </a>
+          </div>
+        </div>
+
+        {optimizando && (
+          <div className="optimizando">
+            <p className="muted">
+              Ubicando direcciones y calculando el mejor recorrido... ({optimizando.actual} de {optimizando.total})
+            </p>
+            <div className="progress">
+              <div
+                className="progress-fill"
+                style={{ width: `${Math.round((optimizando.actual / optimizando.total) * 100)}%` }}
+              />
+            </div>
+          </div>
+        )}
       </div>
 
       <p className="notice">
@@ -1188,13 +1501,17 @@ function TransportistaView({
       </p>
 
       <div className="list">
-        {rutaLocal.length === 0 && <p className="muted">No quedan paradas pendientes para mostrar.</p>}
+        {rutaLocal.length === 0 && (
+          <div className="empty-state">
+            <p>No quedan paradas pendientes para mostrar.</p>
+          </div>
+        )}
 
         {rutaLocal.map((s, i) => (
           <div key={s.id} className="route-item">
             <div className="route-number">{i + 1}</div>
 
-            <SolicitudCard s={s}>
+            <SolicitudCard s={s} lugares={lugares}>
               <div className="actions">
                 <Button
                   variant="outline"
@@ -1230,7 +1547,7 @@ function TransportistaView({
   );
 }
 
-function HistorialView({ historial, volverAPendiente, empezarEdicion }) {
+function HistorialView({ historial, volverAPendiente, empezarEdicion, lugares }) {
   return (
     <section className="card">
       <p className="eyebrow">Historial</p>
@@ -1240,10 +1557,14 @@ function HistorialView({ historial, volverAPendiente, empezarEdicion }) {
       </p>
 
       <div className="list">
-        {historial.length === 0 && <p className="muted">No hay órdenes entregadas en los últimos 30 días.</p>}
+        {historial.length === 0 && (
+          <div className="empty-state">
+            <p>No hay órdenes entregadas en los últimos 30 días.</p>
+          </div>
+        )}
 
         {historial.map((s) => (
-          <SolicitudCard key={s.id} s={s}>
+          <SolicitudCard key={s.id} s={s} lugares={lugares}>
             <Button variant="outline" onClick={() => empezarEdicion(s)}>Editar</Button>
             <Button variant="danger" onClick={() => volverAPendiente(s.id)}>Volver a pendiente</Button>
           </SolicitudCard>
@@ -1277,6 +1598,7 @@ function ResumenCarga({ fechaFiltro, setFechaFiltro, resumenCarga }) {
           <Field label="Filtrar por fecha">
             <input type="date" value={fechaFiltro} onChange={(e) => setFechaFiltro(e.target.value)} />
           </Field>
+          <Button variant="outline" type="button" onClick={() => setFechaFiltro(getToday())}>Hoy</Button>
           <Button variant="outline" type="button" onClick={() => setFechaFiltro("")}>Ver todas</Button>
         </div>
       </div>
@@ -1364,7 +1686,11 @@ function LugaresView({
       </div>
 
       <div className="list">
-        {lugares.length === 0 && <p className="muted">Todavía no hay lugares guardados.</p>}
+        {lugares.length === 0 && (
+          <div className="empty-state">
+            <p>Todavía no hay lugares guardados.</p>
+          </div>
+        )}
 
         {lugares.map((lugar) => {
           const editando = lugarEditando?.id === lugar.id;
@@ -1450,9 +1776,11 @@ function Field({ label, required, children }) {
   );
 }
 
-function SolicitudCard({ s, children }) {
+function SolicitudCard({ s, lugares = [], children }) {
+  const lugar = lugares.find((l) => l.id === s.lugar_predeterminado_id);
+
   return (
-    <article className="request">
+    <article className={`request ${s.prioridad === "Urgente" && s.entregado !== true ? "urgente" : ""}`}>
       <div>
         <div className="request-head">
           <strong>
@@ -1464,7 +1792,10 @@ function SolicitudCard({ s, children }) {
           {s.prioridad === "Urgente" && <span className="badge urgent">Urgente</span>}
         </div>
 
-        <p>{s.direccion}</p>
+        <p>
+          {lugar && <strong>{lugar.nombre} · </strong>}
+          {s.direccion}
+        </p>
         <p className="muted">{getHorario(s)}</p>
 
         <div className="notice">
@@ -1486,3 +1817,4 @@ function SolicitudCard({ s, children }) {
 }
 
 createRoot(document.getElementById("root")).render(<App />);
+

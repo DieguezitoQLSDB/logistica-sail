@@ -349,18 +349,51 @@ function App() {
     );
   }
 
+  // Traemos en páginas de 500 para evitar el límite de 1.000 por consulta.
+  // Nunca se excluyen solicitudes pendientes o no entregadas por su antigüedad.
+  // Las entregadas solo se cargan durante sus primeros 30 días.
   async function cargarSolicitudes(silencioso = false) {
-    const { data, error } = await supabase
-      .from("solicitudes")
-      .select("*")
-      .order("fecha", { ascending: true })
-      .order("orden_ruta", { ascending: true, nullsFirst: false })
-      .order("created_at", { ascending: false });
+    const TAMANO_PAGINA = 500;
+    const limiteHistorial = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
 
-    if (error) {
-      if (!silencioso) avisar("Error cargando solicitudes: " + error.message, "error");
-    } else {
-      setSolicitudes(data || []);
+    async function traerPaginas(filtro) {
+      const acumuladas = [];
+      let inicio = 0;
+
+      while (true) {
+        let consulta = supabase
+          .from("solicitudes")
+          .select("*")
+          .order("fecha", { ascending: true })
+          .order("created_at", { ascending: false })
+          .order("id", { ascending: true });
+
+        if (filtro === "abiertas") {
+          consulta = consulta.or("entregado.is.null,entregado.eq.false");
+        } else {
+          consulta = consulta.eq("entregado", true).gte("entregado_at", limiteHistorial);
+        }
+
+        const { data, error } = await consulta.range(inicio, inicio + TAMANO_PAGINA - 1);
+        if (error) throw error;
+
+        acumuladas.push(...(data || []));
+        if (!data || data.length < TAMANO_PAGINA) break;
+        inicio += TAMANO_PAGINA;
+      }
+      return acumuladas;
+    }
+
+    try {
+      const [abiertas, entregadasRecientes] = await Promise.all([
+        traerPaginas("abiertas"),
+        traerPaginas("entregadas"),
+      ]);
+
+      setSolicitudes([...abiertas, ...entregadasRecientes]);
+    } catch (error) {
+      // Ante un problema de conexión, NO reemplazamos la ruta por una lista vacía.
+      avisar("No se pudieron actualizar todas las solicitudes: " + error.message, "error");
     }
   }
 
@@ -901,12 +934,12 @@ function App() {
     return solicitudes
       .filter((s) => s.entregado === true)
       .filter((s) => {
-        const fechaReferencia = String(s.updated_at || s.fecha || "").slice(0, 10);
+        const fechaReferencia = String(s.entregado_at || "").slice(0, 10);
         return fechaReferencia >= limite;
       })
       .sort((a, b) => {
-        const fechaA = String(a.updated_at || a.fecha || "").slice(0, 10);
-        const fechaB = String(b.updated_at || b.fecha || "").slice(0, 10);
+        const fechaA = String(a.entregado_at || "").slice(0, 10);
+        const fechaB = String(b.entregado_at || "").slice(0, 10);
         return fechaB.localeCompare(fechaA);
       });
   }, [solicitudes]);
@@ -1817,4 +1850,3 @@ function SolicitudCard({ s, lugares = [], children }) {
 }
 
 createRoot(document.getElementById("root")).render(<App />);
-
